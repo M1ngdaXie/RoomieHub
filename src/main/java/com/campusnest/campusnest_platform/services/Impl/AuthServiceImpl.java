@@ -1,12 +1,20 @@
 package com.campusnest.campusnest_platform.services.Impl;
 
 import com.campusnest.campusnest_platform.enums.VerificationStatus;
+import com.campusnest.campusnest_platform.models.RefreshToken;
 import com.campusnest.campusnest_platform.models.User;
+import com.campusnest.campusnest_platform.repository.RefreshTokenRepository;
 import com.campusnest.campusnest_platform.repository.UserRepository;
+import com.campusnest.campusnest_platform.requests.DeviceInfo;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
+import com.campusnest.campusnest_platform.requests.LogoutRequest;
+import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
 import com.campusnest.campusnest_platform.response.LoginResponse;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
+import com.campusnest.campusnest_platform.response.LogoutResponse;
+import com.campusnest.campusnest_platform.response.RefreshTokenResponse;
 import com.campusnest.campusnest_platform.response.RegisterResponse;
+import com.campusnest.campusnest_platform.response.UserResponse;
 import com.campusnest.campusnest_platform.services.AuthService;
 import com.campusnest.campusnest_platform.services.EmailVerificationService;
 import com.campusnest.campusnest_platform.services.JwtTokenService;
@@ -17,6 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -38,6 +47,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private JwtTokenService jwtTokenService;
+    
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
 
     public RegisterResponse registerUser(RegisterRequest request) {
 
@@ -132,6 +144,149 @@ public class AuthServiceImpl implements AuthService {
         user.setEmailVerified(false);
         user.setActive(true);
         return user;
+    }
+
+    @Override
+    public RefreshTokenResponse refreshAccessToken(RefreshTokenRequest request) {
+        try {
+            RefreshToken refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken())
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
+
+            // Check expiration
+            if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
+                refreshTokenRepository.delete(refreshToken);
+                return RefreshTokenResponse.invalidToken();
+            }
+
+            User user = refreshToken.getUser();
+
+            // Check user status
+            if (!user.getActive() || !user.getEmailVerified()) {
+                return RefreshTokenResponse.accountIssue();
+            }
+
+            // Optional: Validate device consistency
+            if (request.getDeviceInfo() != null && refreshToken.getDeviceId() != null) {
+                if (!refreshToken.getDeviceId().equals(request.getDeviceInfo().getDeviceId())) {
+                    log.warn("Device mismatch for refresh token - possible security issue");
+                    // Could reject or just log warning
+                }
+            }
+
+            // Generate new tokens (TOKEN ROTATION)
+            String newAccessToken = jwtTokenService.generateAccessToken(user);
+            String newRefreshToken = jwtTokenService.generateRefreshToken(user, request.getDeviceInfo());
+
+            // Delete old refresh token (important for security)
+            refreshTokenRepository.delete(refreshToken);
+
+            // Update last login
+            user.setLastLoginAt(Instant.now());
+            userRepository.save(user);
+
+            return RefreshTokenResponse.success(
+                    newAccessToken,
+                    newRefreshToken,
+                    UserResponse.from(user),
+                    jwtTokenService.getAccessTokenExpiration(),
+                    UUID.randomUUID().toString()
+            );
+
+        } catch (Exception e) {
+            log.error("Token refresh failed: {}", e.getMessage());
+            return RefreshTokenResponse.invalidToken();
+        }
+    }
+
+    @Override
+    public LogoutResponse logout(LogoutRequest request) {
+        try {
+            String refreshTokenValue = request.getRefreshToken();
+            boolean logoutAllDevices = request.isLogoutAllDevices();
+            
+            if (logoutAllDevices) {
+                return logoutAllDevices(refreshTokenValue, request.getDeviceInfo());
+            } else {
+                return logoutSingleDevice(refreshTokenValue, request.getDeviceInfo());
+            }
+            
+        } catch (Exception e) {
+            log.error("Error during logout: {}", e.getMessage());
+            // Always return success for logout from user perspective
+            return LogoutResponse.alreadyLoggedOut();
+        }
+    }
+    
+    private LogoutResponse logoutSingleDevice(String refreshTokenValue, DeviceInfo deviceInfo) {
+        try {
+            RefreshToken refreshToken = refreshTokenRepository.findByToken(refreshTokenValue)
+                    .orElse(null);
+            
+            if (refreshToken == null) {
+                log.info("Logout attempt with non-existent or already expired token");
+                return LogoutResponse.alreadyLoggedOut();
+            }
+            
+            // Optional: Validate device consistency for additional security
+            if (deviceInfo != null && refreshToken.getDeviceId() != null) {
+                if (!refreshToken.getDeviceId().equals(deviceInfo.getDeviceId())) {
+                    log.warn("Device mismatch during logout - possible security issue. Token: {}, Request: {}",
+                            refreshToken.getDeviceId(), deviceInfo.getDeviceId());
+                }
+            }
+            
+            // Delete the refresh token
+            refreshTokenRepository.delete(refreshToken);
+            
+            log.info("User logged out successfully: {}", 
+                    maskEmailForLogs(refreshToken.getUser().getEmail()));
+                    
+            return LogoutResponse.success();
+            
+        } catch (Exception e) {
+            log.error("Error during single device logout: {}", e.getMessage());
+            return LogoutResponse.alreadyLoggedOut();
+        }
+    }
+    
+    private LogoutResponse logoutAllDevices(String refreshTokenValue, DeviceInfo deviceInfo) {
+        try {
+            // First find the user from the provided refresh token
+            RefreshToken currentToken = refreshTokenRepository.findByToken(refreshTokenValue)
+                    .orElse(null);
+                    
+            if (currentToken == null) {
+                log.info("Logout all devices attempt with non-existent token");
+                return LogoutResponse.alreadyLoggedOut();
+            }
+            
+            User user = currentToken.getUser();
+            
+            // Find all refresh tokens for this user
+            List<RefreshToken> userTokens = refreshTokenRepository.findByUser(user);
+            
+            if (userTokens.isEmpty()) {
+                return LogoutResponse.alreadyLoggedOut();
+            }
+            
+            // Delete all refresh tokens for this user
+            refreshTokenRepository.deleteAll(userTokens);
+            
+            log.info("User logged out from all devices: {} - {} tokens invalidated", 
+                    maskEmailForLogs(user.getEmail()), userTokens.size());
+                    
+            return LogoutResponse.successAllDevices(userTokens.size());
+            
+        } catch (Exception e) {
+            log.error("Error during logout all devices: {}", e.getMessage());
+            return LogoutResponse.alreadyLoggedOut();
+        }
+    }
+    
+    private String maskEmailForLogs(String email) {
+        if (email == null) return "null";
+        int atIndex = email.indexOf("@");
+        return atIndex > 0 ? email.substring(0, 1) + "***" + email.substring(atIndex) : email;
     }
 
     private String extractDomain(String email) {

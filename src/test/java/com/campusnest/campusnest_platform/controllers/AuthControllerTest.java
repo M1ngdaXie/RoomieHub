@@ -2,9 +2,14 @@ package com.campusnest.campusnest_platform.controllers;
 
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
+import com.campusnest.campusnest_platform.requests.LogoutRequest;
+import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
 import com.campusnest.campusnest_platform.response.LoginResponse;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
+import com.campusnest.campusnest_platform.response.LogoutResponse;
+import com.campusnest.campusnest_platform.response.RefreshTokenResponse;
 import com.campusnest.campusnest_platform.response.RegisterResponse;
+import com.campusnest.campusnest_platform.response.UserResponse;
 import com.campusnest.campusnest_platform.services.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -225,5 +230,243 @@ class AuthControllerTest {
         response.setExpiresIn(900L);
         response.setSessionId("session-123");
         return response;
+    }
+
+    // ========== REFRESH TOKEN ENDPOINT TESTS ==========
+
+    @Test
+    void refreshToken_Success_ReturnsOk() throws Exception {
+        RefreshTokenRequest refreshRequest = createValidRefreshTokenRequest();
+        RefreshTokenResponse successResponse = createSuccessfulRefreshTokenResponse();
+
+        when(authService.refreshAccessToken(any(RefreshTokenRequest.class)))
+                .thenReturn(successResponse);
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Token refreshed successfully"))
+                .andExpect(jsonPath("$.access_token").exists())
+                .andExpect(jsonPath("$.refresh_token").exists())
+                .andExpect(jsonPath("$.token_type").value("Bearer"))
+                .andExpect(jsonPath("$.expires_in").value(900))
+                .andExpect(jsonPath("$.user").exists());
+    }
+
+    @Test
+    void refreshToken_InvalidToken_ReturnsUnauthorized() throws Exception {
+        RefreshTokenRequest refreshRequest = createValidRefreshTokenRequest();
+        RefreshTokenResponse failureResponse = RefreshTokenResponse.invalidToken();
+
+        when(authService.refreshAccessToken(any(RefreshTokenRequest.class)))
+                .thenReturn(failureResponse);
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Invalid or expired refresh token. Please log in again."));
+    }
+
+    @Test
+    void refreshToken_ExpiredToken_ReturnsUnauthorized() throws Exception {
+        RefreshTokenRequest refreshRequest = createValidRefreshTokenRequest();
+        refreshRequest.setRefreshToken("expired-refresh-token");
+        RefreshTokenResponse expiredResponse = RefreshTokenResponse.invalidToken();
+
+        when(authService.refreshAccessToken(any(RefreshTokenRequest.class)))
+                .thenReturn(expiredResponse);
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void refreshToken_AccountIssue_ReturnsUnauthorized() throws Exception {
+        RefreshTokenRequest refreshRequest = createValidRefreshTokenRequest();
+        RefreshTokenResponse accountIssueResponse = RefreshTokenResponse.accountIssue();
+
+        when(authService.refreshAccessToken(any(RefreshTokenRequest.class)))
+                .thenReturn(accountIssueResponse);
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Account not active or verification status changed. Please log in again."));
+    }
+
+    @Test
+    void refreshToken_MissingRefreshToken_ReturnsBadRequest() throws Exception {
+        RefreshTokenRequest invalidRequest = createValidRefreshTokenRequest();
+        invalidRequest.setRefreshToken("");
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void refreshToken_ServiceException_ReturnsUnauthorized() throws Exception {
+        RefreshTokenRequest refreshRequest = createValidRefreshTokenRequest();
+
+        when(authService.refreshAccessToken(any(RefreshTokenRequest.class)))
+                .thenThrow(new RuntimeException("Service error"));
+
+        mockMvc.perform(post("/api/auth/refresh-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    // ========== LOGOUT ENDPOINT TESTS ==========
+
+    @Test
+    void logout_SingleDevice_Success_ReturnsOk() throws Exception {
+        LogoutRequest logoutRequest = createValidLogoutRequest(false);
+        LogoutResponse successResponse = LogoutResponse.success();
+
+        when(authService.logout(any(LogoutRequest.class)))
+                .thenReturn(successResponse);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(logoutRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Logged out successfully"))
+                .andExpect(jsonPath("$.tokens_invalidated").value(1))
+                .andExpect(jsonPath("$.logout_time").exists());
+    }
+
+    @Test
+    void logout_AllDevices_Success_ReturnsOk() throws Exception {
+        LogoutRequest logoutRequest = createValidLogoutRequest(true);
+        LogoutResponse successResponse = LogoutResponse.successAllDevices(3);
+
+        when(authService.logout(any(LogoutRequest.class)))
+                .thenReturn(successResponse);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(logoutRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Logged out from all devices successfully"))
+                .andExpect(jsonPath("$.tokens_invalidated").value(3))
+                .andExpect(jsonPath("$.logout_time").exists());
+    }
+
+    @Test
+    void logout_InvalidRefreshToken_StillReturnsSuccess() throws Exception {
+        LogoutRequest logoutRequest = createValidLogoutRequest(false);
+        logoutRequest.setRefreshToken("invalid-token");
+        LogoutResponse alreadyLoggedOutResponse = LogoutResponse.alreadyLoggedOut();
+
+        when(authService.logout(any(LogoutRequest.class)))
+                .thenReturn(alreadyLoggedOutResponse);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(logoutRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Already logged out or token not found"))
+                .andExpect(jsonPath("$.tokens_invalidated").value(0));
+    }
+
+    @Test
+    void logout_ServiceException_StillReturnsSuccess() throws Exception {
+        LogoutRequest logoutRequest = createValidLogoutRequest(false);
+
+        when(authService.logout(any(LogoutRequest.class)))
+                .thenThrow(new RuntimeException("Database connection error"));
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(logoutRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Already logged out or token not found"));
+    }
+
+    @Test
+    void logout_MissingRefreshToken_ReturnsBadRequest() throws Exception {
+        LogoutRequest invalidRequest = createValidLogoutRequest(false);
+        invalidRequest.setRefreshToken("");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void logout_NullRefreshToken_ReturnsBadRequest() throws Exception {
+        LogoutRequest invalidRequest = createValidLogoutRequest(false);
+        invalidRequest.setRefreshToken(null);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ========== HELPER METHODS FOR REFRESH TOKEN & LOGOUT TESTS ==========
+
+    private RefreshTokenRequest createValidRefreshTokenRequest() {
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("valid-refresh-token-123");
+        
+        DeviceInfo deviceInfo = new DeviceInfo();
+        deviceInfo.setDeviceId("test-device-123");
+        deviceInfo.setDeviceType("web");
+        deviceInfo.setUserAgent("Mozilla/5.0 Chrome/91.0");
+        request.setDeviceInfo(deviceInfo);
+        
+        return request;
+    }
+
+    private RefreshTokenResponse createSuccessfulRefreshTokenResponse() {
+        UserResponse userResponse = UserResponse.builder()
+                .id("1")
+                .email("t***@university.edu")
+                .firstName("John")
+                .lastName("Doe")
+                .fullName("John Doe")
+                .universityDomain("university.edu")
+                .emailVerified(true)
+                .build();
+
+        return RefreshTokenResponse.success(
+                "new-access-token-456",
+                "new-refresh-token-456",
+                userResponse,
+                900L,
+                "new-session-456"
+        );
+    }
+
+    private LogoutRequest createValidLogoutRequest(boolean logoutAllDevices) {
+        LogoutRequest request = new LogoutRequest();
+        request.setRefreshToken("valid-refresh-token-123");
+        request.setLogoutAllDevices(logoutAllDevices);
+        
+        DeviceInfo deviceInfo = new DeviceInfo();
+        deviceInfo.setDeviceId("test-device-123");
+        deviceInfo.setDeviceType("web");
+        deviceInfo.setUserAgent("Mozilla/5.0 Chrome/91.0");
+        request.setDeviceInfo(deviceInfo);
+        
+        return request;
     }
 }

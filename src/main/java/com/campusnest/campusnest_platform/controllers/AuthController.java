@@ -2,12 +2,11 @@ package com.campusnest.campusnest_platform.controllers;
 
 import com.campusnest.campusnest_platform.models.User;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
+import com.campusnest.campusnest_platform.requests.LogoutRequest;
+import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
 import com.campusnest.campusnest_platform.requests.ResendVerificationRequest;
-import com.campusnest.campusnest_platform.response.LoginResponse;
+import com.campusnest.campusnest_platform.response.*;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
-import com.campusnest.campusnest_platform.response.RegisterResponse;
-import com.campusnest.campusnest_platform.response.ResendVerificationResponse;
-import com.campusnest.campusnest_platform.response.VerificationResponse;
 import com.campusnest.campusnest_platform.services.AuthService;
 import com.campusnest.campusnest_platform.services.EmailVerificationService;
 import jakarta.validation.Valid;
@@ -16,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -125,6 +126,52 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
+    @PostMapping("/refresh-token")
+    public ResponseEntity<RefreshTokenResponse> refreshToken(
+            @RequestBody @Valid RefreshTokenRequest request) {
+
+        log.info("Token refresh attempt with device: {}",
+                request.getDeviceInfo() != null ? request.getDeviceInfo().getDeviceType() : "Unknown");
+
+        try {
+            RefreshTokenResponse response = authService.refreshAccessToken(request);
+
+            if (response.getSuccess()) {
+                log.info("Token refresh successful");
+                return ResponseEntity.ok(response);
+            } else {
+                log.warn("Token refresh failed: {}", response.getMessage());
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+
+        } catch (Exception e) {
+            log.error("Token refresh error: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(RefreshTokenResponse.invalidToken());
+        }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<LogoutResponse> logout(@RequestBody @Valid LogoutRequest request) {
+        log.info("Logout attempt - logoutAllDevices: {}", request.isLogoutAllDevices());
+        
+        try {
+            LogoutResponse response = authService.logout(request);
+            
+            if (response.getSuccess()) {
+                log.info("Logout successful - {} tokens invalidated", response.getTokensInvalidated());
+            } else {
+                log.info("Logout completed - {}", response.getMessage());
+            }
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Logout error: {}", e.getMessage());
+            return ResponseEntity.ok(LogoutResponse.alreadyLoggedOut()); // Always return success for logout
+        }
+    }
+
     private String maskEmailForLogs(String email) {
         if (email == null) return "null";
         int atIndex = email.indexOf("@");
