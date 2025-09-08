@@ -1,5 +1,6 @@
 package com.campusnest.campusnest_platform.response;
 
+import com.campusnest.campusnest_platform.enums.UserRole;
 import com.campusnest.campusnest_platform.enums.VerificationStatus;
 import com.campusnest.campusnest_platform.models.User;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -47,6 +48,9 @@ public class UserResponse {
     @JsonProperty("profile_complete")
     private Boolean profileComplete; // For prompting profile completion
     
+    @JsonProperty("role")
+    private UserRole role;
+    
     // Factory method for registration context
     public static UserResponse from(User user) {
         return UserResponse.builder()
@@ -59,6 +63,7 @@ public class UserResponse {
             .verificationStatus(user.getVerificationStatus())
             .emailVerified(user.getEmailVerified())
             .accountCreated(user.getCreatedAt())
+            .role(user.getRole())
             .build();
     }
     public static UserResponse fromLogin(User user) {
@@ -74,6 +79,7 @@ public class UserResponse {
                 .accountCreated(user.getCreatedAt())
                 .lastLogin(user.getLastLoginAt())
                 .profileComplete(isProfileComplete(user)) // Check if needs profile completion
+                .role(user.getRole())
                 .build();
     }
     private static boolean isProfileComplete(User user) {

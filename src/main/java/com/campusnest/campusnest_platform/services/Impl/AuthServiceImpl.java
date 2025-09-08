@@ -1,19 +1,25 @@
 package com.campusnest.campusnest_platform.services.Impl;
 
 import com.campusnest.campusnest_platform.enums.VerificationStatus;
+import com.campusnest.campusnest_platform.models.PasswordResetToken;
 import com.campusnest.campusnest_platform.models.RefreshToken;
 import com.campusnest.campusnest_platform.models.User;
+import com.campusnest.campusnest_platform.repository.PasswordResetTokenRepository;
 import com.campusnest.campusnest_platform.repository.RefreshTokenRepository;
 import com.campusnest.campusnest_platform.repository.UserRepository;
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
+import com.campusnest.campusnest_platform.requests.ForgotPasswordRequest;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
 import com.campusnest.campusnest_platform.requests.LogoutRequest;
 import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
+import com.campusnest.campusnest_platform.requests.ResetPasswordRequest;
+import com.campusnest.campusnest_platform.response.ForgotPasswordResponse;
 import com.campusnest.campusnest_platform.response.LoginResponse;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
 import com.campusnest.campusnest_platform.response.LogoutResponse;
 import com.campusnest.campusnest_platform.response.RefreshTokenResponse;
 import com.campusnest.campusnest_platform.response.RegisterResponse;
+import com.campusnest.campusnest_platform.response.ResetPasswordResponse;
 import com.campusnest.campusnest_platform.response.UserResponse;
 import com.campusnest.campusnest_platform.services.AuthService;
 import com.campusnest.campusnest_platform.services.EmailVerificationService;
@@ -50,6 +56,9 @@ public class AuthServiceImpl implements AuthService {
     
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
+    
+    @Autowired
+    private PasswordResetTokenRepository passwordResetTokenRepository;
 
     public RegisterResponse registerUser(RegisterRequest request) {
 
@@ -287,6 +296,159 @@ public class AuthServiceImpl implements AuthService {
         if (email == null) return "null";
         int atIndex = email.indexOf("@");
         return atIndex > 0 ? email.substring(0, 1) + "***" + email.substring(atIndex) : email;
+    }
+
+    @Override
+    public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request, String ipAddress, String userAgent) {
+        try {
+            String email = request.getEmail().toLowerCase().trim();
+            log.info("Password reset request for email: {}", maskEmailForLogs(email));
+            
+            // Rate limiting - check recent requests by IP first (max 10 per hour)
+            Instant oneHourAgo = Instant.now().minusSeconds(3600);
+            long recentIpRequests = passwordResetTokenRepository.countRecentTokensByIpAddress(ipAddress, oneHourAgo);
+            if (recentIpRequests >= 10) {
+                log.warn("Rate limited password reset for IP: {} (requests: {})", ipAddress, recentIpRequests);
+                return ForgotPasswordResponse.rateLimited();
+            }
+            
+            // Find user by email
+            User user = userRepository.findByEmail(email).orElse(null);
+            
+            if (user == null) {
+                // Security: Don't reveal if email exists, but log the attempt
+                log.warn("Password reset attempted for non-existent email: {}", maskEmailForLogs(email));
+                return ForgotPasswordResponse.userNotFound();
+            }
+            
+            // Check if user's email is verified
+            if (!user.getEmailVerified()) {
+                log.warn("Password reset attempted for unverified email: {}", maskEmailForLogs(email));
+                return ForgotPasswordResponse.emailNotVerified();
+            }
+            
+            // Rate limiting - check recent requests by user (max 3 per hour)
+            long recentUserRequests = passwordResetTokenRepository.countRecentTokensByUser(user, oneHourAgo);
+            if (recentUserRequests >= 3) {
+                log.warn("Rate limited password reset for user: {} (requests: {})", maskEmailForLogs(email), recentUserRequests);
+                return ForgotPasswordResponse.rateLimited();
+            }
+            
+            // Invalidate only UNUSED tokens for this user (keep used/expired ones for rate limiting)
+            passwordResetTokenRepository.deleteUnusedTokensByUser(user, Instant.now());
+            
+            // Generate secure token (UUID + timestamp for uniqueness)
+            String resetToken = UUID.randomUUID().toString() + "-" + System.currentTimeMillis();
+            
+            // Create password reset token (expires in 1 hour)
+            PasswordResetToken passwordResetToken = PasswordResetToken.builder()
+                    .token(resetToken)
+                    .user(user)
+                    .expiryDate(Instant.now().plusSeconds(3600)) // 1 hour
+                    .ipAddress(ipAddress)
+                    .userAgent(userAgent)
+                    .build();
+                    
+            passwordResetTokenRepository.save(passwordResetToken);
+            
+            // Send password reset email
+            try {
+                sendPasswordResetEmail(user, resetToken);
+                log.info("Password reset email sent successfully to: {}", maskEmailForLogs(email));
+                return ForgotPasswordResponse.success(maskEmailForLogs(email), 3600L);
+            } catch (Exception e) {
+                log.error("Failed to send password reset email to: {}", maskEmailForLogs(email), e);
+                return ForgotPasswordResponse.emailSendFailure();
+            }
+            
+        } catch (Exception e) {
+            log.error("Unexpected error in forgotPassword: {}", e.getMessage(), e);
+            return ForgotPasswordResponse.emailSendFailure();
+        }
+    }
+    
+    @Override
+    public ResetPasswordResponse resetPassword(ResetPasswordRequest request) {
+        try {
+            String token = request.getToken();
+            String newPassword = request.getNewPassword();
+            String confirmPassword = request.getConfirmPassword();
+            
+            log.info("Password reset attempt with token: {}", token.substring(0, 8) + "...");
+            
+            // Validate password match
+            if (!newPassword.equals(confirmPassword)) {
+                log.warn("Password reset failed: passwords do not match");
+                return ResetPasswordResponse.passwordMismatch();
+            }
+            
+            // Find and validate token
+            PasswordResetToken passwordResetToken = passwordResetTokenRepository.findByToken(token)
+                    .orElse(null);
+                    
+            if (passwordResetToken == null) {
+                log.warn("Password reset attempted with invalid token: {}", token.substring(0, 8) + "...");
+                return ResetPasswordResponse.invalidToken();
+            }
+            
+            // Check if token is expired
+            if (passwordResetToken.isExpired()) {
+                log.warn("Password reset attempted with expired token for user: {}", 
+                        maskEmailForLogs(passwordResetToken.getUser().getEmail()));
+                passwordResetTokenRepository.delete(passwordResetToken);
+                return ResetPasswordResponse.tokenExpired();
+            }
+            
+            // Check if token was already used
+            if (passwordResetToken.isUsed()) {
+                log.warn("Password reset attempted with already used token for user: {}", 
+                        maskEmailForLogs(passwordResetToken.getUser().getEmail()));
+                return ResetPasswordResponse.invalidToken();
+            }
+            
+            User user = passwordResetToken.getUser();
+            
+            // Validate new password is different from current
+            if (passwordEncoder.matches(newPassword, user.getPassword())) {
+                log.warn("User attempted to reset to same password: {}", maskEmailForLogs(user.getEmail()));
+                return ResetPasswordResponse.samePassword();
+            }
+            
+            // Update user password
+            user.setPassword(passwordEncoder.encode(newPassword));
+            user.setLastLoginAt(Instant.now()); // Update last activity
+            userRepository.save(user);
+            
+            // Mark token as used
+            passwordResetToken.markAsUsed();
+            passwordResetTokenRepository.save(passwordResetToken);
+            
+            // Invalidate all refresh tokens for security (user must log in again)
+            List<RefreshToken> userTokens = refreshTokenRepository.findByUser(user);
+            if (!userTokens.isEmpty()) {
+                refreshTokenRepository.deleteAll(userTokens);
+                log.info("Invalidated {} refresh tokens after password reset for user: {}", 
+                        userTokens.size(), maskEmailForLogs(user.getEmail()));
+            }
+            
+            log.info("Password reset successful for user: {}", maskEmailForLogs(user.getEmail()));
+            return ResetPasswordResponse.success(maskEmailForLogs(user.getEmail()));
+            
+        } catch (Exception e) {
+            log.error("Unexpected error in resetPassword: {}", e.getMessage(), e);
+            return ResetPasswordResponse.invalidToken();
+        }
+    }
+    
+    private void sendPasswordResetEmail(User user, String resetToken) {
+        // TODO: Implement actual email sending
+        // This would typically use the same email service as registration
+        // For now, we'll log the reset link
+        String resetLink = "http://localhost:8080/reset-password?token=" + resetToken;
+        log.info("Password reset link for {}: {}", maskEmailForLogs(user.getEmail()), resetLink);
+        
+        // In a real implementation:
+        // emailService.sendPasswordResetEmail(user.getEmail(), user.getFirstName(), resetLink);
     }
 
     private String extractDomain(String email) {

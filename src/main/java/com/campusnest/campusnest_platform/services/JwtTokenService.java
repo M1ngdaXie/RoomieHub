@@ -42,6 +42,7 @@ public class JwtTokenService {
         claims.put("university_domain", user.getUniversityDomain());
         claims.put("verification_status", user.getVerificationStatus().name());
         claims.put("email_verified", user.getEmailVerified());
+        claims.put("role", user.getRole().name());
 
         return JWT.create()
                 .withSubject(user.getId().toString())
@@ -81,6 +82,13 @@ public class JwtTokenService {
     public String getUserIdFromToken(String token) {
         validateAccessToken(token);
         return JWT.decode(token).getSubject();
+    }
+    
+    public String getRoleFromToken(String token) {
+        validateAccessToken(token);
+        var decodedJWT = JWT.decode(token);
+        var claims = decodedJWT.getClaim("claims").asMap();
+        return (String) claims.get("role");
     }
 
     public Long getAccessTokenExpiration() {

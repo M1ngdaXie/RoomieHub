@@ -1,10 +1,12 @@
 package com.campusnest.campusnest_platform.controllers;
 
 import com.campusnest.campusnest_platform.models.User;
+import com.campusnest.campusnest_platform.requests.ForgotPasswordRequest;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
 import com.campusnest.campusnest_platform.requests.LogoutRequest;
 import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
 import com.campusnest.campusnest_platform.requests.ResendVerificationRequest;
+import com.campusnest.campusnest_platform.requests.ResetPasswordRequest;
 import com.campusnest.campusnest_platform.response.*;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
 import com.campusnest.campusnest_platform.services.AuthService;
@@ -15,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.Map;
 
@@ -170,6 +174,79 @@ public class AuthController {
             log.error("Logout error: {}", e.getMessage());
             return ResponseEntity.ok(LogoutResponse.alreadyLoggedOut()); // Always return success for logout
         }
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ForgotPasswordResponse> forgotPassword(
+            @RequestBody @Valid ForgotPasswordRequest request,
+            HttpServletRequest httpRequest) {
+        
+        log.info("Forgot password request for email: {}", maskEmailForLogs(request.getEmail()));
+        
+        try {
+            String ipAddress = getClientIpAddress(httpRequest);
+            String userAgent = httpRequest.getHeader("User-Agent");
+            
+            ForgotPasswordResponse response = authService.forgotPassword(request, ipAddress, userAgent);
+            
+            if (response.getSuccess()) {
+                log.info("Forgot password request processed successfully for email: {}", 
+                        maskEmailForLogs(request.getEmail()));
+                return ResponseEntity.ok(response);
+            } else {
+                HttpStatus status = response.getMessage().contains("rate limited") ? 
+                    HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_REQUEST;
+                    
+                log.warn("Forgot password request failed for email: {} - {}", 
+                        maskEmailForLogs(request.getEmail()), response.getMessage());
+                        
+                return ResponseEntity.status(status).body(response);
+            }
+            
+        } catch (Exception e) {
+            log.error("Unexpected error in forgot password for email: {}", 
+                    maskEmailForLogs(request.getEmail()), e);
+                    
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ForgotPasswordResponse.emailSendFailure());
+        }
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ResetPasswordResponse> resetPassword(@RequestBody @Valid ResetPasswordRequest request) {
+        log.info("Password reset request with token: {}", 
+                request.getToken().substring(0, Math.min(8, request.getToken().length())) + "...");
+        
+        try {
+            ResetPasswordResponse response = authService.resetPassword(request);
+            
+            if (response.getSuccess()) {
+                log.info("Password reset successful for user: {}", response.getEmail());
+                return ResponseEntity.ok(response);
+            } else {
+                log.warn("Password reset failed: {}", response.getMessage());
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+            
+        } catch (Exception e) {
+            log.error("Unexpected error in password reset: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ResetPasswordResponse.invalidToken());
+        }
+    }
+
+    private String getClientIpAddress(HttpServletRequest request) {
+        String xForwardedFor = request.getHeader("X-Forwarded-For");
+        if (xForwardedFor != null && !xForwardedFor.isEmpty() && !"unknown".equalsIgnoreCase(xForwardedFor)) {
+            return xForwardedFor.split(",")[0].trim();
+        }
+        
+        String xRealIp = request.getHeader("X-Real-IP");
+        if (xRealIp != null && !xRealIp.isEmpty() && !"unknown".equalsIgnoreCase(xRealIp)) {
+            return xRealIp;
+        }
+        
+        return request.getRemoteAddr();
     }
 
     private String maskEmailForLogs(String email) {

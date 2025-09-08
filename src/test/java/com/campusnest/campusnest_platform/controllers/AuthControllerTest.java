@@ -1,14 +1,18 @@
 package com.campusnest.campusnest_platform.controllers;
 
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
+import com.campusnest.campusnest_platform.requests.ForgotPasswordRequest;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
 import com.campusnest.campusnest_platform.requests.LogoutRequest;
 import com.campusnest.campusnest_platform.requests.RefreshTokenRequest;
+import com.campusnest.campusnest_platform.requests.ResetPasswordRequest;
+import com.campusnest.campusnest_platform.response.ForgotPasswordResponse;
 import com.campusnest.campusnest_platform.response.LoginResponse;
 import com.campusnest.campusnest_platform.requests.RegisterRequest;
 import com.campusnest.campusnest_platform.response.LogoutResponse;
 import com.campusnest.campusnest_platform.response.RefreshTokenResponse;
 import com.campusnest.campusnest_platform.response.RegisterResponse;
+import com.campusnest.campusnest_platform.response.ResetPasswordResponse;
 import com.campusnest.campusnest_platform.response.UserResponse;
 import com.campusnest.campusnest_platform.services.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -468,5 +473,229 @@ class AuthControllerTest {
         request.setDeviceInfo(deviceInfo);
         
         return request;
+    }
+
+    // ========== PASSWORD RESET ENDPOINT TESTS ==========
+
+    @Test
+    void forgotPassword_Success_ReturnsOk() throws Exception {
+        ForgotPasswordRequest forgotRequest = createValidForgotPasswordRequest();
+        ForgotPasswordResponse successResponse = createSuccessfulForgotPasswordResponse();
+
+        when(authService.forgotPassword(any(ForgotPasswordRequest.class), anyString(), anyString()))
+                .thenReturn(successResponse);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forgotRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Password reset email sent successfully"))
+                .andExpect(jsonPath("$.email").value("t***@university.edu"));
+    }
+
+    @Test
+    void forgotPassword_UserNotFound_ReturnsOk() throws Exception {
+        ForgotPasswordRequest forgotRequest = createValidForgotPasswordRequest();
+        forgotRequest.setEmail("nonexistent@university.edu");
+        ForgotPasswordResponse notFoundResponse = createUserNotFoundForgotPasswordResponse();
+
+        when(authService.forgotPassword(any(ForgotPasswordRequest.class), anyString(), anyString()))
+                .thenReturn(notFoundResponse);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forgotRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("If this email exists, you will receive a password reset link"));
+    }
+
+    @Test
+    void forgotPassword_InvalidEmail_ReturnsBadRequest() throws Exception {
+        ForgotPasswordRequest invalidRequest = createValidForgotPasswordRequest();
+        invalidRequest.setEmail("invalid-email");
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void forgotPassword_EmptyEmail_ReturnsBadRequest() throws Exception {
+        ForgotPasswordRequest emptyRequest = createValidForgotPasswordRequest();
+        emptyRequest.setEmail("");
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(emptyRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void forgotPassword_ServiceException_ReturnsInternalServerError() throws Exception {
+        ForgotPasswordRequest forgotRequest = createValidForgotPasswordRequest();
+
+        when(authService.forgotPassword(any(ForgotPasswordRequest.class), anyString(), anyString()))
+                .thenThrow(new RuntimeException("Email service error"));
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(forgotRequest)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void resetPassword_Success_ReturnsOk() throws Exception {
+        ResetPasswordRequest resetRequest = createValidResetPasswordRequest();
+        ResetPasswordResponse successResponse = createSuccessfulResetPasswordResponse();
+
+        when(authService.resetPassword(any(ResetPasswordRequest.class)))
+                .thenReturn(successResponse);
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(resetRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Password reset successfully"))
+                .andExpect(jsonPath("$.email").value("t***@university.edu"));
+    }
+
+    @Test
+    void resetPassword_InvalidToken_ReturnsBadRequest() throws Exception {
+        ResetPasswordRequest resetRequest = createValidResetPasswordRequest();
+        resetRequest.setToken("invalid-token");
+        ResetPasswordResponse invalidTokenResponse = createInvalidTokenResetPasswordResponse();
+
+        when(authService.resetPassword(any(ResetPasswordRequest.class)))
+                .thenReturn(invalidTokenResponse);
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(resetRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Invalid or expired reset token"));
+    }
+
+    @Test
+    void resetPassword_ExpiredToken_ReturnsBadRequest() throws Exception {
+        ResetPasswordRequest resetRequest = createValidResetPasswordRequest();
+        resetRequest.setToken("expired-token");
+        ResetPasswordResponse expiredTokenResponse = createExpiredTokenResetPasswordResponse();
+
+        when(authService.resetPassword(any(ResetPasswordRequest.class)))
+                .thenReturn(expiredTokenResponse);
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(resetRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Password reset token has expired. Please request a new reset link."));
+    }
+
+    @Test
+    void resetPassword_PasswordMismatch_ReturnsBadRequest() throws Exception {
+        ResetPasswordRequest mismatchRequest = createValidResetPasswordRequest();
+        mismatchRequest.setConfirmPassword("DifferentPassword123!");
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(mismatchRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void resetPassword_WeakPassword_ReturnsBadRequest() throws Exception {
+        ResetPasswordRequest weakPasswordRequest = createValidResetPasswordRequest();
+        weakPasswordRequest.setNewPassword("weak");
+        weakPasswordRequest.setConfirmPassword("weak");
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(weakPasswordRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void resetPassword_EmptyToken_ReturnsBadRequest() throws Exception {
+        ResetPasswordRequest emptyTokenRequest = createValidResetPasswordRequest();
+        emptyTokenRequest.setToken("");
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(emptyTokenRequest)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void resetPassword_ServiceException_ReturnsInternalServerError() throws Exception {
+        ResetPasswordRequest resetRequest = createValidResetPasswordRequest();
+
+        when(authService.resetPassword(any(ResetPasswordRequest.class)))
+                .thenThrow(new RuntimeException("Database error"));
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(resetRequest)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    // ========== PASSWORD RESET HELPER METHODS ==========
+
+    private ForgotPasswordRequest createValidForgotPasswordRequest() {
+        ForgotPasswordRequest request = new ForgotPasswordRequest();
+        request.setEmail("test@university.edu");
+        return request;
+    }
+
+    private ResetPasswordRequest createValidResetPasswordRequest() {
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("valid-reset-token-123");
+        request.setNewPassword("NewPassword123!");
+        request.setConfirmPassword("NewPassword123!");
+        return request;
+    }
+
+    private ForgotPasswordResponse createSuccessfulForgotPasswordResponse() {
+        ForgotPasswordResponse response = new ForgotPasswordResponse();
+        response.setSuccess(true);
+        response.setMessage("Password reset email sent successfully");
+        response.setEmail("t***@university.edu");
+        return response;
+    }
+
+    private ForgotPasswordResponse createUserNotFoundForgotPasswordResponse() {
+        ForgotPasswordResponse response = new ForgotPasswordResponse();
+        response.setSuccess(true);
+        response.setMessage("If this email exists, you will receive a password reset link");
+        return response;
+    }
+
+    private ResetPasswordResponse createSuccessfulResetPasswordResponse() {
+        ResetPasswordResponse response = new ResetPasswordResponse();
+        response.setSuccess(true);
+        response.setMessage("Password reset successfully");
+        response.setEmail("t***@university.edu");
+        return response;
+    }
+
+    private ResetPasswordResponse createInvalidTokenResetPasswordResponse() {
+        ResetPasswordResponse response = new ResetPasswordResponse();
+        response.setSuccess(false);
+        response.setMessage("Invalid or expired reset token");
+        return response;
+    }
+
+    private ResetPasswordResponse createExpiredTokenResetPasswordResponse() {
+        ResetPasswordResponse response = new ResetPasswordResponse();
+        response.setSuccess(false);
+        response.setMessage("Password reset token has expired. Please request a new reset link.");
+        return response;
     }
 }

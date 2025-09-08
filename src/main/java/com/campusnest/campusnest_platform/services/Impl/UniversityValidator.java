@@ -15,7 +15,8 @@ public class UniversityValidator {
             "mit.edu",
             "harvard.edu",
             "yale.edu",
-            "northeastern.edu"
+            "northeastern.edu",
+            "utah.edu"
             // Add more as needed
     );
 
@@ -26,6 +27,7 @@ public class UniversityValidator {
             "harvard.edu", "Harvard University",
             "yale.edu", "Yale University",
             "northeastern.edu", "Northeastern University"
+            ,"utah.edu", "University of Utah"
     );
 
 

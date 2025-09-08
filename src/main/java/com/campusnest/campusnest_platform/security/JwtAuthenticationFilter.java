@@ -10,13 +10,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.Optional;
 
 @Component
@@ -44,19 +42,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (userOptional.isPresent()) {
                     User user = userOptional.get();
                     
-                    // Only allow verified users to access protected endpoints
-                    if (user.getEmailVerified()) {
+                    // Use UserDetails methods for account validation
+                    if (user.isEnabled() && user.isAccountNonLocked() && 
+                        user.isAccountNonExpired() && user.isCredentialsNonExpired()) {
+                        
+                        // User implements UserDetails, so we can use getAuthorities() directly
                         UsernamePasswordAuthenticationToken authentication = 
                             new UsernamePasswordAuthenticationToken(
                                 user, 
                                 null, 
-                                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                                user.getAuthorities()
                             );
                         
                         SecurityContextHolder.getContext().setAuthentication(authentication);
-                        log.debug("Successfully authenticated user: {}", maskEmail(user.getEmail()));
+                        log.debug("Successfully authenticated user: {} with role: {}", 
+                                maskEmail(user.getEmail()), user.getRole().name());
                     } else {
-                        log.warn("Rejected unverified user: {}", maskEmail(user.getEmail()));
+                        log.warn("Rejected user due to account status - user: {}, enabled: {}, unlocked: {}, non-expired: {}, credentials-valid: {}", 
+                                maskEmail(user.getEmail()), user.isEnabled(), user.isAccountNonLocked(), 
+                                user.isAccountNonExpired(), user.isCredentialsNonExpired());
                     }
                 }
             } catch (Exception e) {
