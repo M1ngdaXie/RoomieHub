@@ -3,6 +3,7 @@ package com.campusnest.campusnest_platform.services;
 import com.campusnest.campusnest_platform.models.HousingListing;
 import com.campusnest.campusnest_platform.models.User;
 import com.campusnest.campusnest_platform.repository.HousingListingRepository;
+import com.campusnest.campusnest_platform.repository.ListingImageRepository;
 import com.campusnest.campusnest_platform.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-@Service
+@Service("housingListingService")
 @Transactional
 public class HousingListingServiceImpl implements HousingListingService {
 
@@ -23,6 +24,9 @@ public class HousingListingServiceImpl implements HousingListingService {
     
     @Autowired
     private UserRepository userRepository;
+    
+    @Autowired
+    private ListingImageRepository listingImageRepository;
 
     @Override
     public HousingListing createListing(HousingListing listing, String ownerEmail) {
@@ -82,6 +86,23 @@ public class HousingListingServiceImpl implements HousingListingService {
         listing.setIsActive(false);
         listing.setUpdatedAt(LocalDateTime.now());
         housingListingRepository.save(listing);
+        
+        // Note: Images are kept for data integrity and potential recovery
+        // For hard delete (permanent removal), use hardDeleteListing method
+    }
+    
+    // Optional: Add hard delete method for complete removal
+    public void hardDeleteListing(Long id, String requesterEmail) {
+        verifyOwnershipOrAdmin(id, requesterEmail);
+        
+        HousingListing listing = housingListingRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Listing not found: " + id));
+        
+        // Delete all associated images first
+        listingImageRepository.deleteByListing(listing);
+        
+        // Hard delete the listing
+        housingListingRepository.delete(listing);
     }
 
     @Override

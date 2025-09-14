@@ -2,7 +2,7 @@ package com.campusnest.campusnest_platform.controllers;
 
 import com.campusnest.campusnest_platform.models.HousingListing;
 import com.campusnest.campusnest_platform.models.ListingImage;
-import com.campusnest.campusnest_platform.models.UserFavorite;
+import com.campusnest.campusnest_platform.repository.ListingImageRepository;
 import com.campusnest.campusnest_platform.requests.CreateHousingListingRequest;
 import com.campusnest.campusnest_platform.requests.SearchHousingListingRequest;
 import com.campusnest.campusnest_platform.requests.UpdateHousingListingRequest;
@@ -12,19 +12,15 @@ import com.campusnest.campusnest_platform.services.HousingListingService;
 import com.campusnest.campusnest_platform.services.S3Service;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +37,9 @@ public class HousingListingController {
 
     @Autowired
     private S3Service s3Service;
+    
+    @Autowired
+    private ListingImageRepository listingImageRepository;
 
     // Create a new housing listing
     @PostMapping
@@ -341,16 +340,30 @@ public class HousingListingController {
     }
 
     private void associateImages(HousingListing listing, List<String> s3Keys) {
-        // Implementation would go here to create ListingImage entities
-        // This would involve saving ListingImage records with the s3Keys
-        // For now, this is a placeholder as the image association logic
-        // would need the ListingImageRepository
+        if (s3Keys == null || s3Keys.isEmpty()) {
+            return;
+        }
+        
+        for (int i = 0; i < s3Keys.size(); i++) {
+            ListingImage image = new ListingImage();
+            image.setListing(listing);
+            image.setS3Key(s3Keys.get(i));
+            image.setDisplayOrder(i + 1);
+            image.setIsPrimary(i == 0); // First image is primary by default
+            
+            listingImageRepository.save(image);
+        }
     }
 
+    @Transactional
     private void updateImages(HousingListing listing, List<String> s3Keys) {
-        // Implementation would go here to update ListingImage entities
-        // This would involve clearing existing images and creating new ones
-        // For now, this is a placeholder
+        // Delete existing images for this listing
+        listingImageRepository.deleteByListing(listing);
+        
+        // Associate new images if provided
+        if (s3Keys != null && !s3Keys.isEmpty()) {
+            associateImages(listing, s3Keys);
+        }
     }
 
     private boolean filterByBedBath(HousingListing listing, SearchHousingListingRequest request) {
@@ -431,6 +444,7 @@ public class HousingListingController {
         ownerInfo.setFirstName(listing.getOwner().getFirstName());
         ownerInfo.setLastName(listing.getOwner().getLastName());
         ownerInfo.setEmail(maskEmail(listing.getOwner().getEmail()));
+        ownerInfo.setUniversityDomain(listing.getOwner().getUniversityDomain());
         response.setOwner(ownerInfo);
 
         // Set images info

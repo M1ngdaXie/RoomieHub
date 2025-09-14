@@ -16,6 +16,9 @@ public class ListingImage {
     @Column(nullable = false)
     private String s3Key;
 
+    @Column(name = "image_url")
+    private String imageUrl = ""; // Empty string as placeholder since we generate signed URLs dynamically
+
     @Column(nullable = false)
     private Boolean isPrimary = false;
 
