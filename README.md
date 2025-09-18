@@ -220,28 +220,3 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 ./mvnw test -Dtest="*SecurityTest"
 ```
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
-
-## 🌟 Connect With Us
-
-- **Project Repository**: [GitHub](https://github.com/yourusername/campusnest-platform)
-- **Issue Tracking**: [GitHub Issues](https://github.com/yourusername/campusnest-platform/issues)
-- **Documentation**: [Wiki](https://github.com/yourusername/campusnest-platform/wiki)
-
----
-
-⭐ **Star this repository if you're excited about the future of student housing!**
-
-*Revolutionizing campus living through technology - connecting students with their perfect home away from home.*
