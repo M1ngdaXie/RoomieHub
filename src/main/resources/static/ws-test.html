@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px;
+        }
+        .status { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .message { 
+            background-color: #f8f9fa; 
+            padding: 10px; 
+            margin: 5px 0; 
+            border-radius: 3px; 
+            border-left: 4px solid #007bff;
+        }
+        button { 
+            padding: 10px 15px; 
+            margin: 5px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 3px; 
+            cursor: pointer; 
+        }
+        button:disabled { 
+            background-color: #6c757d; 
+            cursor: not-allowed; 
+        }
+        input[type="text"] { 
+            padding: 8px; 
+            margin: 5px; 
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        #messages { 
+            height: 300px; 
+            overflow-y: auto; 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            background-color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 Simple WebSocket Test</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <div>
+        <div style="margin-bottom: 10px;">
+            <input type="text" id="jwtToken" placeholder="Paste your JWT token here (optional)" style="width: 400px;">
+        </div>
+        <button onclick="connect()" id="connectBtn">Connect</button>
+        <button onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <h3>Test Messages</h3>
+        <div>
+            <input type="text" id="nameInput" placeholder="Enter your name" value="TestUser">
+            <button onclick="sendGreeting()" id="greetBtn" disabled>Send Greeting</button>
+        </div>
+        <div>
+            <input type="text" id="echoInput" placeholder="Enter message to echo">
+            <button onclick="sendEcho()" id="echoBtn" disabled>Send Echo</button>
+        </div>
+        <div>
+            <button onclick="sendStatus()" id="statusBtn" disabled>Check Status</button>
+        </div>
+        
+        <h4>💬 Chat Messaging Tests</h4>
+        <div>
+            <input type="text" id="conversationId" placeholder="Conversation ID (e.g., 1)" value="1" onchange="subscribeToConversation()">
+            <input type="text" id="chatMessage" placeholder="Enter chat message">
+            <button onclick="sendChatMessage()" id="chatBtn" disabled>Send Chat Message</button>
+            <button onclick="subscribeToConversation()" id="subscribeBtn" disabled>Subscribe to Conversation</button>
+        </div>
+        <div>
+            <button onclick="startTyping()" id="typingBtn" disabled>Start Typing</button>
+            <button onclick="stopTyping()" id="stopTypingBtn" disabled>Stop Typing</button>
+        </div>
+        <div>
+            <button onclick="joinConversation()" id="joinBtn" disabled>Join Conversation</button>
+            <button onclick="leaveConversation()" id="leaveBtn" disabled>Leave Conversation</button>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <h3>Messages</h3>
+        <button onclick="clearMessages()">Clear Messages</button>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        let stompClient = null;
+        let connected = false;
+
+        function connect() {
+            const socket = new SockJS('/ws');
+            stompClient = Stomp.over(socket);
+            
+            // Disable debug logging
+            stompClient.debug = null;
+
+            // Get JWT token from input field
+            const jwtToken = document.getElementById('jwtToken').value.trim();
+            const headers = {};
+            
+            if (jwtToken) {
+                headers['Authorization'] = 'Bearer ' + jwtToken;
+                addMessage('🔑 Connecting with JWT token...', 'info');
+            } else {
+                addMessage('🔓 Connecting without authentication...', 'info');
+            }
+
+            stompClient.connect(headers, function(frame) {
+                connected = true;
+                updateConnectionStatus();
+                addMessage('✅ Connected to WebSocket: ' + frame, 'success');
+                
+                // Subscribe to public topic
+                stompClient.subscribe('/topic/greetings', function(message) {
+                    addMessage('📢 Public Message: ' + message.body, 'public');
+                });
+                
+                // Subscribe to user-specific queue
+                stompClient.subscribe('/user/queue/replies', function(message) {
+                    addMessage('👤 Private Reply: ' + message.body, 'private');
+                });
+                
+                stompClient.subscribe('/user/queue/status', function(message) {
+                    addMessage('📊 Status: ' + message.body, 'status');
+                });
+                
+                // Subscribe to messaging queues (without wildcards - Spring WebSocket doesn't support them)
+                stompClient.subscribe('/user/queue/messages', function(message) {
+                    console.log('Received message on /user/queue/messages:', message);
+                    try {
+                        const messageData = JSON.parse(message.body);
+                        addMessage('💬 Received Message: From ' + messageData.sender.firstName + ': ' + messageData.content, 'chat');
+                    } catch (e) {
+                        addMessage('💬 Chat Message: ' + message.body, 'chat');
+                    }
+                });
+                
+                stompClient.subscribe('/user/queue/message-sent', function(message) {
+                    console.log('Received confirmation on /user/queue/message-sent:', message);
+                    try {
+                        const messageData = JSON.parse(message.body);
+                        addMessage('✅ Message Sent Confirmed: ' + messageData.content, 'sent');
+                    } catch (e) {
+                        addMessage('✅ Message Sent: ' + message.body, 'sent');
+                    }
+                });
+                
+                // Subscribe to specific conversation queues - will be updated dynamically
+                const conversationId = document.getElementById('conversationId').value || '1';
+                
+                stompClient.subscribe('/user/queue/messages/' + conversationId, function(message) {
+                    console.log('Received message on conversation ' + conversationId + ':', message);
+                    try {
+                        const messageData = JSON.parse(message.body);
+                        addMessage('💬 Conv ' + conversationId + ' Message: From ' + messageData.sender.firstName + ': ' + messageData.content, 'chat');
+                    } catch (e) {
+                        addMessage('💬 Conv ' + conversationId + ' Message: ' + message.body, 'chat');
+                    }
+                });
+                
+                stompClient.subscribe('/user/queue/typing/' + conversationId, function(message) {
+                    console.log('Received typing indicator:', message);
+                    addMessage('⌨️ Typing Indicator: ' + message.body, 'typing');
+                });
+                
+                stompClient.subscribe('/user/queue/errors', function(message) {
+                    console.log('Received error:', message);
+                    addMessage('❌ Error: ' + message.body, 'error');
+                });
+                
+            }, function(error) {
+                connected = false;
+                updateConnectionStatus();
+                addMessage('❌ Connection error: ' + error, 'error');
+            });
+        }
+
+        function disconnect() {
+            if (stompClient !== null) {
+                stompClient.disconnect();
+            }
+            connected = false;
+            updateConnectionStatus();
+            addMessage('🔌 Disconnected', 'info');
+        }
+
+        function sendGreeting() {
+            if (stompClient && connected) {
+                const name = document.getElementById('nameInput').value || 'Anonymous';
+                const message = { name: name };
+                stompClient.send('/app/hello', {}, JSON.stringify(message));
+                addMessage('➡️ Sent greeting: Hello from ' + name, 'sent');
+            }
+        }
+
+        function sendEcho() {
+            if (stompClient && connected) {
+                const content = document.getElementById('echoInput').value;
+                if (content) {
+                    const message = { content: content, type: 'echo' };
+                    stompClient.send('/app/echo', {}, JSON.stringify(message));
+                    addMessage('➡️ Sent echo: ' + content, 'sent');
+                    document.getElementById('echoInput').value = '';
+                }
+            }
+        }
+
+        function sendStatus() {
+            if (stompClient && connected) {
+                stompClient.send('/app/status', {}, '{}');
+                addMessage('➡️ Requested status', 'sent');
+            }
+        }
+
+        function updateConnectionStatus() {
+            const statusDiv = document.getElementById('status');
+            const buttons = ['greetBtn', 'echoBtn', 'statusBtn', 'disconnectBtn', 
+                           'chatBtn', 'typingBtn', 'stopTypingBtn', 'joinBtn', 'leaveBtn', 'subscribeBtn'];
+            const connectBtn = document.getElementById('connectBtn');
+            
+            if (connected) {
+                statusDiv.textContent = '✅ Connected to WebSocket';
+                statusDiv.className = 'status connected';
+                buttons.forEach(id => document.getElementById(id).disabled = false);
+                connectBtn.disabled = true;
+            } else {
+                statusDiv.textContent = '❌ Disconnected';
+                statusDiv.className = 'status disconnected';
+                buttons.forEach(id => document.getElementById(id).disabled = true);
+                connectBtn.disabled = false;
+            }
+        }
+
+        function addMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            messageElement.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+            
+            // Style based on message type
+            switch(type) {
+                case 'error':
+                    messageElement.style.borderLeftColor = '#dc3545';
+                    messageElement.style.backgroundColor = '#f8d7da';
+                    break;
+                case 'success':
+                    messageElement.style.borderLeftColor = '#28a745';
+                    messageElement.style.backgroundColor = '#d4edda';
+                    break;
+                case 'sent':
+                    messageElement.style.borderLeftColor = '#007bff';
+                    messageElement.style.backgroundColor = '#d1ecf1';
+                    break;
+                case 'public':
+                    messageElement.style.borderLeftColor = '#ffc107';
+                    messageElement.style.backgroundColor = '#fff3cd';
+                    break;
+                case 'private':
+                    messageElement.style.borderLeftColor = '#6f42c1';
+                    messageElement.style.backgroundColor = '#e2e3f0';
+                    break;
+                case 'status':
+                    messageElement.style.borderLeftColor = '#17a2b8';
+                    messageElement.style.backgroundColor = '#d1ecf1';
+                    break;
+            }
+            
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+
+        // Auto-disconnect on page unload
+        window.addEventListener('beforeunload', function() {
+            if (connected) {
+                disconnect();
+            }
+        });
+
+        // Chat messaging functions
+        function sendChatMessage() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                const content = document.getElementById('chatMessage').value;
+                if (conversationId && content) {
+                    const message = {
+                        conversationId: parseInt(conversationId),
+                        content: content,
+                        messageType: 'TEXT',
+                        timestamp: Date.now()
+                    };
+                    stompClient.send('/app/chat/send', {}, JSON.stringify(message));
+                    addMessage('💬 Sent chat message to conversation ' + conversationId + ': ' + content, 'sent');
+                    document.getElementById('chatMessage').value = '';
+                }
+            }
+        }
+        
+        function startTyping() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                if (conversationId) {
+                    const message = {
+                        conversationId: parseInt(conversationId),
+                        isTyping: true
+                    };
+                    stompClient.send('/app/chat/typing', {}, JSON.stringify(message));
+                    addMessage('⌨️ Started typing in conversation ' + conversationId, 'sent');
+                }
+            }
+        }
+        
+        function stopTyping() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                if (conversationId) {
+                    const message = {
+                        conversationId: parseInt(conversationId),
+                        isTyping: false
+                    };
+                    stompClient.send('/app/chat/typing', {}, JSON.stringify(message));
+                    addMessage('⌨️ Stopped typing in conversation ' + conversationId, 'sent');
+                }
+            }
+        }
+        
+        function joinConversation() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                if (conversationId) {
+                    stompClient.send('/app/chat/join', {}, conversationId);
+                    addMessage('🚪 Joined conversation ' + conversationId, 'sent');
+                }
+            }
+        }
+        
+        function leaveConversation() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                if (conversationId) {
+                    stompClient.send('/app/chat/leave', {}, conversationId);
+                    addMessage('🚪 Left conversation ' + conversationId, 'sent');
+                }
+            }
+        }
+        
+        // Dynamic conversation subscription
+        function subscribeToConversation() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value;
+                if (conversationId) {
+                    // Subscribe to conversation-specific message queue
+                    stompClient.subscribe('/user/queue/messages/' + conversationId, function(message) {
+                        console.log('Received message on conversation ' + conversationId + ':', message);
+                        try {
+                            const messageData = JSON.parse(message.body);
+                            addMessage('💬 Conv ' + conversationId + ': From ' + messageData.sender.firstName + ': ' + messageData.content, 'chat');
+                        } catch (e) {
+                            addMessage('💬 Conv ' + conversationId + ': ' + message.body, 'chat');
+                        }
+                    });
+                    
+                    // Subscribe to conversation-specific typing indicators
+                    stompClient.subscribe('/user/queue/typing/' + conversationId, function(message) {
+                        console.log('Received typing indicator on conversation ' + conversationId + ':', message);
+                        try {
+                            const typingData = JSON.parse(message.body);
+                            addMessage('⌨️ Conv ' + conversationId + ': ' + typingData.user.firstName + ' is ' + (typingData.isTyping ? 'typing...' : 'not typing'), 'typing');
+                        } catch (e) {
+                            addMessage('⌨️ Conv ' + conversationId + ' Typing: ' + message.body, 'typing');
+                        }
+                    });
+                    
+                    addMessage('📡 Subscribed to conversation ' + conversationId + ' queues', 'info');
+                }
+            }
+        }
+
+        // Add initial message
+        addMessage('🌐 WebSocket test page loaded. Click Connect to start.', 'info');
+    </script>
+</body>
+</html>

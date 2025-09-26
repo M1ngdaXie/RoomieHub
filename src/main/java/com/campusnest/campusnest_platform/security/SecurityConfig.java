@@ -30,6 +30,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/images/**").permitAll()
                         .requestMatchers("/api/housing/**").permitAll()
+                        .requestMatchers("/ws/**").permitAll() // Allow WebSocket connections
+                        .requestMatchers("/ws-native/**").permitAll() // Allow native WebSocket connections
+                        .requestMatchers("/app/**").permitAll() // Allow WebSocket message endpoints for testing
+                        .requestMatchers("/websocket-test.html").permitAll() // Allow WebSocket test page
+                        .requestMatchers("/static/**").permitAll() // Allow static resources
+                        .requestMatchers("/*.html").permitAll() // Allow HTML files in root
+                        .requestMatchers("/*.js").permitAll() // Allow JS files
+                        .requestMatchers("/*.css").permitAll() // Allow CSS files
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

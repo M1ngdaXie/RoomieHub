@@ -90,9 +90,47 @@ public class JwtTokenService {
         var claims = decodedJWT.getClaim("claims").asMap();
         return (String) claims.get("role");
     }
+    
+    public String getEmailFromToken(String token) {
+        validateAccessToken(token);
+        var decodedJWT = JWT.decode(token);
+        var claims = decodedJWT.getClaim("claims").asMap();
+        return (String) claims.get("email");
+    }
+    
+    public boolean validateToken(String token) {
+        return validateAccessToken(token);
+    }
 
     public Long getAccessTokenExpiration() {
         return (long) accessTokenExpiration;
+    }
+
+    // Helper methods for WebSocket authentication
+    public String extractEmail(String token) {
+        return getEmailFromToken(token);
+    }
+    
+    public boolean isTokenValid(String token, String email) {
+        if (!validateAccessToken(token)) {
+            return false;
+        }
+        String tokenEmail = getEmailFromToken(token);
+        return email.equals(tokenEmail);
+    }
+    
+    public String generateToken(String email) {
+        // This is a simple token generation for testing - in production you'd want the full user object
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("email", email);
+        
+        return JWT.create()
+                .withSubject(email)
+                .withClaim("claims", claims)
+                .withIssuedAt(Date.from(Instant.now()))
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(accessTokenExpiration)))
+                .withIssuer("campusnest-platform")
+                .sign(Algorithm.HMAC256(jwtSecret));
     }
 
 }
