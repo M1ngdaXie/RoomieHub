@@ -8,6 +8,9 @@ import com.campusnest.campusnest_platform.repository.MessageRepository;
 import com.campusnest.campusnest_platform.repository.MessageStatusRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -74,6 +77,11 @@ public class MessagingServiceImpl implements MessagingService {
     }
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "unread-counts", allEntries = true),
+            @CacheEvict(value = "conversations", allEntries = true),
+            @CacheEvict(value = "conversation-messages", key = "#conversationId")
+    })
     public Message sendMessage(Long conversationId, User sender, String content, MessageType messageType) {
         log.info("Sending {} message in conversation {} from user {}", 
                 messageType, conversationId, maskEmail(sender.getEmail()));
@@ -149,12 +157,14 @@ public class MessagingServiceImpl implements MessagingService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "conversations", key = "#user.id + ':' + #pageable.pageNumber")
     public Page<Conversation> getUserConversations(User user, Pageable pageable) {
         log.debug("Getting conversations with pagination for user {}", maskEmail(user.getEmail()));
         return conversationRepository.findByUserOrderByLastMessageDesc(user, pageable);
     }
 
     @Override
+    @CacheEvict(value = "unread-counts", key = "#user.id")
     public void markMessagesAsRead(Long conversationId, User user) {
         log.info("Marking messages as read in conversation {} for user {}", conversationId, maskEmail(user.getEmail()));
         
@@ -198,6 +208,7 @@ public class MessagingServiceImpl implements MessagingService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "unread-counts", key = "#user.id")
     public long getTotalUnreadMessageCount(User user) {
         List<Message> unreadMessages = messageRepository.findAllUnreadMessagesForUser(user);
         return unreadMessages.size();

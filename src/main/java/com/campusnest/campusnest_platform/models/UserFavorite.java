@@ -1,5 +1,6 @@
 package com.campusnest.campusnest_platform.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,10 +20,12 @@ public class UserFavorite {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnoreProperties({"password", "authorities", "accountLocked", "passwordExpiresAt", "accountExpiresAt", "favorites"})
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "listing_id", nullable = false)
+    @JsonIgnoreProperties({"images", "favorites", "owner"})
     private HousingListing listing;
 
     @CreationTimestamp

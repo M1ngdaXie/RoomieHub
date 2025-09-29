@@ -9,9 +9,11 @@ import com.campusnest.campusnest_platform.response.TypingIndicatorResponse;
 import com.campusnest.campusnest_platform.services.MessagingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.annotation.SendToUser;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
@@ -25,6 +27,9 @@ public class WebSocketMessagingController {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private CacheManager cacheManager;
 
     @MessageMapping("/chat/send")
     public void sendMessage(ChatMessageRequest request, Principal principal) {
@@ -40,7 +45,7 @@ public class WebSocketMessagingController {
                 return;
             }
 
-            // Send message through service (this handles the database transaction)
+            // Send message through service (this handles the database transaction and cache clearing)
             Message message = messagingService.sendMessage(
                     request.getConversationId(), 
                     currentUser, 
@@ -48,6 +53,9 @@ public class WebSocketMessagingController {
                     request.getMessageType() != null ? request.getMessageType() : 
                             com.campusnest.campusnest_platform.enums.MessageType.TEXT
             );
+            
+            // Additional cache clearing for real-time messaging
+            clearUserCaches(currentUser.getId());
 
             // Create response
             ChatMessageResponse response = ChatMessageResponse.fromMessage(message);
@@ -222,13 +230,24 @@ public class WebSocketMessagingController {
     }
 
     private User getCurrentUser(Principal principal) {
-        if (principal instanceof org.springframework.security.authentication.UsernamePasswordAuthenticationToken) {
-            var auth = (org.springframework.security.authentication.UsernamePasswordAuthenticationToken) principal;
+        if (principal instanceof UsernamePasswordAuthenticationToken) {
+            var auth = (UsernamePasswordAuthenticationToken) principal;
             if (auth.getPrincipal() instanceof User) {
                 return (User) auth.getPrincipal();
             }
         }
         throw new RuntimeException("User not found in WebSocket authentication context");
+    }
+
+    private void clearUserCaches(Long userId) {
+        // Clear specific user caches that might be affected by new messages
+        if (cacheManager.getCache("unread-counts") != null) {
+            cacheManager.getCache("unread-counts").evict(userId);
+        }
+        if (cacheManager.getCache("conversations") != null) {
+            cacheManager.getCache("conversations").clear(); // Clear all conversation caches
+        }
+        log.debug("Cleared caches for user: {}", userId);
     }
 
     private String maskEmail(String email) {

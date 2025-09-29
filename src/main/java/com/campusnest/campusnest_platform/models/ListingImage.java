@@ -1,5 +1,6 @@
 package com.campusnest.campusnest_platform.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -27,5 +28,6 @@ public class ListingImage {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "listing_id", nullable = false)
+    @JsonIgnoreProperties({"images", "favorites", "owner"})
     private HousingListing listing;
 }

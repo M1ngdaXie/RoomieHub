@@ -6,6 +6,11 @@ import com.campusnest.campusnest_platform.repository.HousingListingRepository;
 import com.campusnest.campusnest_platform.repository.ListingImageRepository;
 import com.campusnest.campusnest_platform.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,8 +48,20 @@ public class HousingListingServiceImpl implements HousingListingService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "housing-listings", key = "#id") // TEMPORARILY DISABLED DUE TO REDIS SERIALIZATION ISSUES
     public Optional<HousingListing> findById(Long id) {
-        return housingListingRepository.findById(id);
+        // Step 1: Fetch listing with owner (avoiding MultipleBagFetchException)
+        HousingListing listing = housingListingRepository.findByIdWithOwner(id);
+        if (listing == null) {
+            return Optional.empty();
+        }
+        
+        // Step 2: Fetch images and favorites separately (following Baeldung's multiple queries approach)
+        List<HousingListing> singleList = List.of(listing);
+        housingListingRepository.findWithImages(singleList);
+        housingListingRepository.findWithFavorites(singleList);
+        
+        return Optional.of(listing);
     }
 
     @Override
@@ -54,6 +71,8 @@ public class HousingListingServiceImpl implements HousingListingService {
     }
 
     @Override
+    @CachePut(value = "housing-listings", key = "#id")
+    @CacheEvict(value = "housing-search", allEntries = true)
     public HousingListing updateListing(Long id, HousingListing updatedListing, String requesterEmail) {
         verifyOwnershipOrAdmin(id, requesterEmail);
         
@@ -76,6 +95,7 @@ public class HousingListingServiceImpl implements HousingListingService {
     }
 
     @Override
+    @CacheEvict(value = {"housing-listings", "housing-search"}, key = "#id", allEntries = true)
     public void deleteListing(Long id, String requesterEmail) {
         verifyOwnershipOrAdmin(id, requesterEmail);
         
@@ -223,4 +243,32 @@ public class HousingListingServiceImpl implements HousingListingService {
         
         return housingListingRepository.countByOwner(owner);
     }
+    @Cacheable(value = "housing-listings", key = "#id")
+    public HousingListing getById(Long id){
+        return housingListingRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Listing not found: " + id));
+    }
+
+    @Cacheable(value = "housing-search",
+            key = "#city + ':' + #minPrice + ':' + #maxPrice + ':' + #pageable.pageNumber")
+    public Page<HousingListing> searchListings(String city, BigDecimal minPrice, BigDecimal maxPrice, Pageable pageable) {
+        return housingListingRepository.findByCityAndPriceBetween(city, minPrice, maxPrice, pageable);
+    }
+
+
+    @CachePut(value = "housing-listings", key = "#result.id")
+    public HousingListing saveOrUpdate(HousingListing listing) {
+        return housingListingRepository.save(listing);
+    }
+
+    @CacheEvict(value = "housing-listings", key = "#id")
+    public void delete(Long id) {
+        housingListingRepository.deleteById(id);
+        clearSearchCache();
+    }
+    @CacheEvict(value = "housing-search", allEntries = true)
+    public void clearSearchCache() {
+
+    }
+
 }

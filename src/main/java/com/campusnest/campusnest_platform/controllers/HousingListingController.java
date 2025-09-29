@@ -20,6 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/housing")
 @CrossOrigin(origins = "http://localhost:3000")
+@Slf4j
 public class HousingListingController {
 
     @Autowired
@@ -115,22 +117,76 @@ public class HousingListingController {
         }
     }
 
-    // Get listing by ID (public endpoint)
+    // Get listing by ID (public endpoint) - WITH DEBUG LOGGING
     @GetMapping("/{id}")
     public ResponseEntity<HousingListingResponse> getListingById(@PathVariable Long id,
                                                                Authentication authentication) {
+        long startTime = System.currentTimeMillis();
+        String userEmail = authentication != null ? authentication.getName() : "anonymous";
+        
+        log.info("=== getListingById START === ID: {}, User: {}, Thread: {}", 
+                id, userEmail, Thread.currentThread().getName());
+        
         try {
+            // Step 1: Call service
+            log.info("Step 1: Calling housingListingService.findById({})", id);
             Optional<HousingListing> listing = housingListingService.findById(id);
+            log.info("Step 1 RESULT: listing.isPresent() = {}", listing.isPresent());
             
-            if (listing.isEmpty() || !listing.get().getIsActive()) {
+            // Step 2: Check if listing exists and is active
+            if (listing.isEmpty()) {
+                log.warn("Step 2: Listing {} not found - returning 404", id);
+                return ResponseEntity.notFound().build();
+            }
+            
+            HousingListing actualListing = listing.get();
+            log.info("Step 2: Found listing - ID: {}, Title: '{}', IsActive: {}, Owner: {}", 
+                    actualListing.getId(), 
+                    actualListing.getTitle(), 
+                    actualListing.getIsActive(),
+                    actualListing.getOwner() != null ? actualListing.getOwner().getEmail() : "null");
+            
+            if (!actualListing.getIsActive()) {
+                log.warn("Step 2: Listing {} is inactive - returning 404", id);
                 return ResponseEntity.notFound().build();
             }
 
-            HousingListingResponse response = convertToResponse(listing.get(), 
-                    authentication != null ? authentication.getName() : null);
+            // Step 3: Convert to response
+            log.info("Step 3: Converting to response for user: {}", userEmail);
+            
+            // Log detailed entity state before conversion
+            log.info("Step 3 ENTITY STATE - Images: {}, Favorites: {}, Owner: {}", 
+                    actualListing.getImages() != null ? actualListing.getImages().size() : "null",
+                    actualListing.getFavorites() != null ? actualListing.getFavorites().size() : "null",
+                    actualListing.getOwner() != null ? "present" : "null");
+            
+            HousingListingResponse response = convertToResponse(actualListing, userEmail);
+            log.info("Step 3 RESULT: Response created - ID: {}, Images: {}, FavoriteCount: {}", 
+                    response.getId(),
+                    response.getImages() != null ? response.getImages().size() : "null",
+                    response.getFavoriteCount());
+            
+            // Step 4: Return response
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("=== getListingById SUCCESS === ID: {}, Duration: {}ms", id, duration);
             
             return ResponseEntity.ok(response);
+            
         } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            log.error("=== getListingById ERROR === ID: {}, Duration: {}ms, Exception: {}, Message: {}, StackTrace: {}", 
+                    id, duration, e.getClass().getSimpleName(), e.getMessage(), 
+                    java.util.Arrays.toString(e.getStackTrace()));
+            
+            // Log the specific cause chain
+            Throwable cause = e.getCause();
+            int causeLevel = 1;
+            while (cause != null && causeLevel <= 3) {
+                log.error("  Cause {}: {} - {}", causeLevel, cause.getClass().getSimpleName(), cause.getMessage());
+                cause = cause.getCause();
+                causeLevel++;
+            }
+            
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -423,66 +479,109 @@ public class HousingListingController {
     }
 
     private HousingListingResponse convertToResponse(HousingListing listing, String currentUserEmail) {
-        HousingListingResponse response = new HousingListingResponse();
-        response.setId(listing.getId());
-        response.setTitle(listing.getTitle());
-        response.setDescription(listing.getDescription());
-        response.setPrice(listing.getPrice());
-        response.setAddress(listing.getAddress());
-        response.setCity(listing.getCity());
-        response.setBedrooms(listing.getBedrooms());
-        response.setBathrooms(listing.getBathrooms());
-        response.setAvailableFrom(listing.getAvailableFrom());
-        response.setAvailableTo(listing.getAvailableTo());
-        response.setIsActive(listing.getIsActive());
-        response.setCreatedAt(listing.getCreatedAt());
-        response.setUpdatedAt(listing.getUpdatedAt());
+        log.info("  convertToResponse START - Listing ID: {}, User: {}", listing.getId(), currentUserEmail);
+        
+        try {
+            HousingListingResponse response = new HousingListingResponse();
+            response.setId(listing.getId());
+            response.setTitle(listing.getTitle());
+            response.setDescription(listing.getDescription());
+            response.setPrice(listing.getPrice());
+            response.setAddress(listing.getAddress());
+            response.setCity(listing.getCity());
+            response.setBedrooms(listing.getBedrooms());
+            response.setBathrooms(listing.getBathrooms());
+            response.setAvailableFrom(listing.getAvailableFrom());
+            response.setAvailableTo(listing.getAvailableTo());
+            response.setIsActive(listing.getIsActive());
+            response.setCreatedAt(listing.getCreatedAt());
+            response.setUpdatedAt(listing.getUpdatedAt());
+            log.info("  Basic properties set successfully");
 
-        // Set owner info
-        HousingListingResponse.OwnerInfo ownerInfo = new HousingListingResponse.OwnerInfo();
-        ownerInfo.setId(listing.getOwner().getId());
-        ownerInfo.setFirstName(listing.getOwner().getFirstName());
-        ownerInfo.setLastName(listing.getOwner().getLastName());
-        ownerInfo.setEmail(maskEmail(listing.getOwner().getEmail()));
-        ownerInfo.setUniversityDomain(listing.getOwner().getUniversityDomain());
-        response.setOwner(ownerInfo);
-
-        // Set images info
-        if (listing.getImages() != null) {
-            List<HousingListingResponse.ImageInfo> imageInfos = listing.getImages().stream()
-                    .map(image -> {
-                        HousingListingResponse.ImageInfo imageInfo = new HousingListingResponse.ImageInfo();
-                        imageInfo.setId(image.getId());
-                        imageInfo.setS3Key(image.getS3Key());
-                        imageInfo.setIsPrimary(image.getIsPrimary());
-                        imageInfo.setDisplayOrder(image.getDisplayOrder());
-                        try {
-                            imageInfo.setImageUrl(s3Service.getSignedImageUrl(image.getS3Key()));
-                        } catch (Exception e) {
-                            imageInfo.setImageUrl(null);
-                        }
-                        return imageInfo;
-                    })
-                    .collect(Collectors.toList());
-            response.setImages(imageInfos);
-        }
-
-        // Set favorites info
-        if (listing.getFavorites() != null) {
-            response.setFavoriteCount(listing.getFavorites().size());
-            
-            if (currentUserEmail != null) {
-                response.setIsFavorited(listing.getFavorites().stream()
-                        .anyMatch(fav -> fav.getUser().getEmail().equals(currentUserEmail)));
-            } else {
-                response.setIsFavorited(false);
+            // Set owner info
+            log.info("  Processing owner info - Owner present: {}", listing.getOwner() != null);
+            if (listing.getOwner() != null) {
+                HousingListingResponse.OwnerInfo ownerInfo = new HousingListingResponse.OwnerInfo();
+                ownerInfo.setId(listing.getOwner().getId());
+                ownerInfo.setFirstName(listing.getOwner().getFirstName());
+                ownerInfo.setLastName(listing.getOwner().getLastName());
+                ownerInfo.setEmail(maskEmail(listing.getOwner().getEmail()));
+                ownerInfo.setUniversityDomain(listing.getOwner().getUniversityDomain());
+                response.setOwner(ownerInfo);
+                log.info("  Owner info set successfully - ID: {}", ownerInfo.getId());
             }
-        } else {
-            response.setFavoriteCount(0);
-            response.setIsFavorited(false);
-        }
 
-        return response;
+            // Set images info
+            log.info("  Processing images - Images present: {}, Count: {}", 
+                    listing.getImages() != null, 
+                    listing.getImages() != null ? listing.getImages().size() : 0);
+            
+            if (listing.getImages() != null) {
+                List<HousingListingResponse.ImageInfo> imageInfos = listing.getImages().stream()
+                        .map(image -> {
+                            log.info("    Processing image - ID: {}, S3Key: {}, IsPrimary: {}", 
+                                    image.getId(), image.getS3Key(), image.getIsPrimary());
+                            
+                            HousingListingResponse.ImageInfo imageInfo = new HousingListingResponse.ImageInfo();
+                            imageInfo.setId(image.getId());
+                            imageInfo.setS3Key(image.getS3Key());
+                            imageInfo.setIsPrimary(image.getIsPrimary());
+                            imageInfo.setDisplayOrder(image.getDisplayOrder());
+                            
+                            try {
+                                log.info("    Calling s3Service.getSignedImageUrl for S3Key: {}", image.getS3Key());
+                                String signedUrl = s3Service.getSignedImageUrl(image.getS3Key());
+                                imageInfo.setImageUrl(signedUrl);
+                                log.info("    S3 signed URL generated successfully for S3Key: {}", image.getS3Key());
+                            } catch (Exception e) {
+                                log.error("    S3 signed URL generation failed for S3Key: {} - Exception: {}, Message: {}", 
+                                        image.getS3Key(), e.getClass().getSimpleName(), e.getMessage());
+                                imageInfo.setImageUrl(null);
+                            }
+                            return imageInfo;
+                        })
+                        .collect(Collectors.toList());
+                response.setImages(imageInfos);
+                log.info("  Images processed successfully - Final count: {}", imageInfos.size());
+            }
+
+            // Set favorites info
+            log.info("  Processing favorites - Favorites present: {}, Count: {}", 
+                    listing.getFavorites() != null, 
+                    listing.getFavorites() != null ? listing.getFavorites().size() : 0);
+            
+            if (listing.getFavorites() != null) {
+                response.setFavoriteCount(listing.getFavorites().size());
+                
+                if (currentUserEmail != null) {
+                    boolean isFavorited = listing.getFavorites().stream()
+                            .anyMatch(fav -> fav.getUser().getEmail().equals(currentUserEmail));
+                    response.setIsFavorited(isFavorited);
+                    log.info("  User favorites checked - Count: {}, IsFavorited: {}", 
+                            listing.getFavorites().size(), isFavorited);
+                } else {
+                    response.setIsFavorited(false);
+                    log.info("  Anonymous user - IsFavorited set to false");
+                }
+            } else {
+                response.setFavoriteCount(0);
+                response.setIsFavorited(false);
+                log.info("  No favorites found - set to 0/false");
+            }
+
+            log.info("  convertToResponse SUCCESS - Response ID: {}, Images: {}, FavoriteCount: {}", 
+                    response.getId(), 
+                    response.getImages() != null ? response.getImages().size() : 0,
+                    response.getFavoriteCount());
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("  convertToResponse ERROR - Listing ID: {}, Exception: {}, Message: {}, StackTrace: {}", 
+                    listing.getId(), e.getClass().getSimpleName(), e.getMessage(), 
+                    java.util.Arrays.toString(e.getStackTrace()));
+            throw e; // Re-throw to be caught by the main method
+        }
     }
 
     private HousingListingSummaryResponse convertToSummaryResponse(HousingListing listing, String currentUserEmail) {
