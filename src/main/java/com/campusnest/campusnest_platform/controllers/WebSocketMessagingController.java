@@ -173,9 +173,10 @@ public class WebSocketMessagingController {
     }
 
     @MessageMapping("/chat/join")
-    public void joinConversation(Long conversationId, Principal principal) {
+    public void joinConversation(String conversationIdStr, Principal principal) {
         try {
             User currentUser = getCurrentUser(principal);
+            Long conversationId = Long.parseLong(conversationIdStr);
             log.info("User {} joining conversation {}", maskEmail(currentUser.getEmail()), conversationId);
 
             // Validate user can access conversation
@@ -203,9 +204,10 @@ public class WebSocketMessagingController {
     }
 
     @MessageMapping("/chat/leave")
-    public void leaveConversation(Long conversationId, Principal principal) {
+    public void leaveConversation(String conversationIdStr, Principal principal) {
         try {
             User currentUser = getCurrentUser(principal);
+            Long conversationId = Long.parseLong(conversationIdStr);
             log.info("User {} leaving conversation {}", maskEmail(currentUser.getEmail()), conversationId);
 
             // Send confirmation

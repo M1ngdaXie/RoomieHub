@@ -34,6 +34,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/cache/**").permitAll() // Allow cache management endpoints
                         .requestMatchers("/api/simple-housing/**").permitAll() // Allow simple housing endpoints
                         .requestMatchers("/ws/**").permitAll() // Allow WebSocket connections
+                        .requestMatchers("/ws-native/**").permitAll() // Allow native WebSocket connections
                         .requestMatchers("/websocket-test.html").permitAll() // Allow WebSocket test page
                         .requestMatchers("/static/**").permitAll() // Allow static resources
                         .requestMatchers("/*.html").permitAll() // Allow HTML files in root

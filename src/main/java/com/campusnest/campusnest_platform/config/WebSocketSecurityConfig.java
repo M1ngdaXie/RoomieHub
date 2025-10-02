@@ -14,7 +14,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.security.Principal;
 import java.util.List;
 
-@Configuration
+// @Configuration  // ← DISABLED - THIS WAS A MASSIVE SECURITY VULNERABILITY!
+// This class was bypassing ALL WebSocket authentication and allowing anyone to connect
+// as a fake "test-user" without any JWT validation. DO NOT RE-ENABLE!
 public class WebSocketSecurityConfig {
 
     public ChannelInterceptor createAuthChannelInterceptor() {

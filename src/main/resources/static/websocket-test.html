@@ -26,6 +26,7 @@
         <div>
             <label>JWT Token:</label><br>
             <input type="text" id="jwtToken" placeholder="Enter your JWT token here" style="width: 500px;">
+            <br><br>
             <button onclick="connect()">Connect</button>
             <button onclick="disconnect()">Disconnect</button>
         </div>
@@ -34,9 +35,33 @@
             <h3>Test Messages</h3>
             <button onclick="sendPing()" id="pingBtn" disabled>Send Ping</button>
             <button onclick="sendTestMessage()" id="testBtn" disabled>Send Test Message</button>
+            <button onclick="getUserInfo()" id="userInfoBtn" disabled>Get User Info</button>
             <br><br>
             <input type="text" id="broadcastInput" placeholder="Enter broadcast message" disabled>
             <button onclick="sendBroadcast()" id="broadcastBtn" disabled>Send Broadcast</button>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <h3>🚀 Messaging Test</h3>
+            <div style="background-color: #f0f8ff; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                <strong>📋 Testing Instructions:</strong><br>
+                1. Open this page in 2 browser windows<br>
+                2. Connect each with different JWT tokens<br>
+                3. Enter the other user's email as "Target user email"<br>
+                4. Send messages and check if both sides receive them
+            </div>
+            <input type="text" id="targetEmail" placeholder="Target user email (e.g., user2@utah.edu)" disabled style="width: 250px;">
+            <input type="text" id="messageContent" placeholder="Message content" disabled style="width: 250px;">
+            <input type="number" id="conversationId" placeholder="Conversation ID" disabled value="1" style="width: 100px;">
+            <br><br>
+            <button onclick="sendDirectMessage()" id="directMsgBtn" disabled>🧪 Send Test Message</button>
+            <button onclick="joinConversation()" id="joinConvBtn" disabled>🚪 Join Conversation</button>
+            <button onclick="leaveConversation()" id="leaveConvBtn" disabled>🚪 Leave Conversation</button>
+            <button onclick="sendChatMessage()" id="chatMsgBtn" disabled>💬 Send Real Chat Message</button>
+            <br>
+            <div id="conversationStatus" style="margin-top: 10px; padding: 5px; background-color: #e9ecef; border-radius: 3px;">
+                <strong>Joined Conversations:</strong> <span id="joinedList">None</span>
+            </div>
         </div>
         
         <div style="margin-top: 20px;">
@@ -49,6 +74,7 @@
     <script>
         let stompClient = null;
         let connected = false;
+        let joinedConversations = new Map(); // Track active conversation subscriptions
 
         function connect() {
             const token = document.getElementById('jwtToken').value;
@@ -68,7 +94,8 @@
             stompClient.connect(headers, function(frame) {
                 connected = true;
                 updateConnectionStatus();
-                addMessage('Connected to WebSocket: ' + frame, 'success');
+                addMessage('✅ Connected to WebSocket successfully!', 'success');
+                addMessage('🔒 Authentication verified for: ' + frame.headers['user-name'] || 'authenticated user', 'success');
                 
                 // Subscribe to user-specific queues
                 stompClient.subscribe('/user/queue/test-response', function(message) {
@@ -83,12 +110,58 @@
                     addMessage('Broadcast: ' + message.body, 'broadcast');
                 });
                 
+                // *** MESSAGING SUBSCRIPTIONS - CRITICAL FOR CROSS-ACCOUNT MESSAGING ***
+                // Subscribe to general messages queue
+                stompClient.subscribe('/user/queue/messages', function(message) {
+                    addMessage('📨 General Message: ' + message.body, 'message');
+                });
+                
+                // Subscribe to message confirmations
+                stompClient.subscribe('/user/queue/message-sent', function(message) {
+                    addMessage('✅ Message Sent Confirmation: ' + message.body, 'confirmation');
+                });
+                
+                // NOTE: Conversation-specific subscriptions are now handled dynamically 
+                // via joinConversation() and leaveConversation() functions
+                
+                // Subscribe to debug queue
+                stompClient.subscribe('/user/queue/debug', function(message) {
+                    addMessage('🐛 Debug: ' + message.body, 'debug');
+                });
+                
+                // Subscribe to errors
+                stompClient.subscribe('/user/queue/errors', function(message) {
+                    addMessage('❌ Error: ' + message.body, 'error');
+                });
+                
             }, function(error) {
                 connected = false;
                 updateConnectionStatus();
-                addMessage('Connection error: ' + error, 'error');
+                
+                // Parse user-friendly authentication errors
+                let userMessage = 'Connection failed: ';
+                if (error && typeof error === 'string') {
+                    if (error.includes('WebSocket Authentication Failed:')) {
+                        // Extract the user-friendly message after the prefix
+                        userMessage = error.split('WebSocket Authentication Failed:')[1] || error;
+                    } else if (error.includes('invalid JWT')) {
+                        userMessage = 'Invalid or expired JWT token. Please login again.';
+                    } else if (error.includes('Unauthorized')) {
+                        userMessage = 'Authentication failed. Please check your JWT token.';
+                    } else if (error.includes('connection rejected')) {
+                        userMessage = 'Connection rejected due to authentication issues.';
+                    } else {
+                        userMessage += error;
+                    }
+                } else {
+                    userMessage += 'Unknown error occurred.';
+                }
+                
+                addMessage('🚫 ' + userMessage.trim(), 'error');
+                addMessage('💡 Tip: Make sure your JWT token is valid and not expired', 'info');
             });
         }
+
 
         function disconnect() {
             if (stompClient !== null) {
@@ -134,19 +207,147 @@
 
         function updateConnectionStatus() {
             const statusDiv = document.getElementById('status');
-            const buttons = ['pingBtn', 'testBtn', 'broadcastBtn'];
-            const input = document.getElementById('broadcastInput');
+            const buttons = ['pingBtn', 'testBtn', 'broadcastBtn', 'userInfoBtn', 'directMsgBtn', 'joinConvBtn', 'leaveConvBtn', 'chatMsgBtn'];
+            const inputs = ['broadcastInput', 'targetEmail', 'messageContent', 'conversationId'];
             
             if (connected) {
                 statusDiv.textContent = 'Connected';
                 statusDiv.className = 'status connected';
                 buttons.forEach(id => document.getElementById(id).disabled = false);
-                input.disabled = false;
+                inputs.forEach(id => document.getElementById(id).disabled = false);
             } else {
                 statusDiv.textContent = 'Disconnected';
                 statusDiv.className = 'status disconnected';
                 buttons.forEach(id => document.getElementById(id).disabled = true);
-                input.disabled = true;
+                inputs.forEach(id => document.getElementById(id).disabled = true);
+                // Clear joined conversations when disconnected
+                joinedConversations.clear();
+                updateConversationStatus();
+            }
+        }
+        
+        function updateConversationStatus() {
+            const joinedList = document.getElementById('joinedList');
+            if (joinedConversations.size === 0) {
+                joinedList.textContent = 'None';
+            } else {
+                joinedList.textContent = Array.from(joinedConversations.keys()).join(', ');
+            }
+        }
+
+        // NEW MESSAGING FUNCTIONS
+        function getUserInfo() {
+            if (stompClient && connected) {
+                stompClient.send('/app/debug/user-info', {}, '{}');
+                addMessage('🔍 User info requested', 'sent');
+            }
+        }
+
+        function sendDirectMessage() {
+            if (stompClient && connected) {
+                const targetEmail = document.getElementById('targetEmail').value;
+                const message = document.getElementById('messageContent').value;
+                const conversationId = document.getElementById('conversationId').value;
+                
+                if (!targetEmail || !message) {
+                    addMessage('❌ Please enter target email and message', 'error');
+                    return;
+                }
+                
+                const payload = {
+                    targetEmail: targetEmail,
+                    message: message,
+                    conversationId: conversationId || 1
+                };
+                
+                stompClient.send('/app/debug/test-message', {}, JSON.stringify(payload));
+                addMessage(`📤 Direct message sent to ${targetEmail}: "${message}"`, 'sent');
+            }
+        }
+
+        function joinConversation() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value || '1';
+                
+                // Check if already joined
+                if (joinedConversations.has(conversationId)) {
+                    addMessage(`⚠️ Already joined conversation ${conversationId}`, 'info');
+                    return;
+                }
+                
+                // Send backend join request
+                stompClient.send('/app/chat/join', {}, conversationId);
+                
+                // Subscribe to conversation-specific message queue
+                const messageDestination = `/user/queue/messages/${conversationId}`;
+                const messageSubscription = stompClient.subscribe(messageDestination, function(message) {
+                    addMessage(`💬 Conv ${conversationId} Message: ` + message.body, 'message');
+                });
+                
+                // Subscribe to conversation-specific typing indicators  
+                const typingDestination = `/user/queue/typing/${conversationId}`;
+                const typingSubscription = stompClient.subscribe(typingDestination, function(message) {
+                    addMessage(`⌨️ Conv ${conversationId} Typing: ` + message.body, 'typing');
+                });
+                
+                // Store subscriptions for cleanup
+                joinedConversations.set(conversationId, {
+                    messageSubscription: messageSubscription,
+                    typingSubscription: typingSubscription
+                });
+                
+                addMessage(`✅ Successfully joined conversation ${conversationId}`, 'success');
+                updateConversationStatus();
+            }
+        }
+        
+        function leaveConversation() {
+            if (stompClient && connected) {
+                const conversationId = document.getElementById('conversationId').value || '1';
+                
+                // Check if actually joined
+                if (!joinedConversations.has(conversationId)) {
+                    addMessage(`⚠️ Not currently in conversation ${conversationId}`, 'info');
+                    return;
+                }
+                
+                // Send backend leave request  
+                stompClient.send('/app/chat/leave', {}, conversationId);
+                
+                // Unsubscribe from conversation-specific queues
+                const subscriptions = joinedConversations.get(conversationId);
+                if (subscriptions) {
+                    subscriptions.messageSubscription.unsubscribe();
+                    subscriptions.typingSubscription.unsubscribe();
+                }
+                
+                // Remove from tracking
+                joinedConversations.delete(conversationId);
+                
+                addMessage(`🚪 Left conversation ${conversationId}`, 'info');
+                updateConversationStatus();
+            }
+        }
+
+        function sendChatMessage() {
+            if (stompClient && connected) {
+                const content = document.getElementById('messageContent').value;
+                const conversationId = document.getElementById('conversationId').value || 1;
+                
+                if (!content) {
+                    addMessage('❌ Please enter message content', 'error');
+                    return;
+                }
+                
+                const chatMessage = {
+                    conversationId: parseInt(conversationId),
+                    content: content,
+                    messageType: 'TEXT'
+                };
+                
+                stompClient.send('/app/chat/send', {}, JSON.stringify(chatMessage));
+                addMessage(`💬 Chat message sent to conversation ${conversationId}: "${content}"`, 'sent');
+                document.getElementById('messageContent').value = '';
             }
         }
 
@@ -161,6 +362,11 @@
             if (type === 'sent') messageElement.style.color = 'blue';
             if (type === 'response') messageElement.style.color = 'purple';
             if (type === 'broadcast') messageElement.style.color = 'orange';
+            if (type === 'message') messageElement.style.color = 'darkgreen';
+            if (type === 'confirmation') messageElement.style.color = 'teal';
+            if (type === 'typing') messageElement.style.color = 'gray';
+            if (type === 'debug') messageElement.style.color = 'brown';
+            if (type === 'info') messageElement.style.color = 'darkblue';
             
             messagesDiv.appendChild(messageElement);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
