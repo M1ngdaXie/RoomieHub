@@ -125,8 +125,9 @@ public class MessagingServiceImpl implements MessagingService {
     @Transactional(readOnly = true)
     public Page<Message> getConversationMessages(Long conversationId, User requestingUser, Pageable pageable) {
         log.debug("Getting messages for conversation {} for user {}", conversationId, maskEmail(requestingUser.getEmail()));
-        
+
         Conversation conversation = getConversation(conversationId, requestingUser);
+        // Return messages in descending order (newest first) - iOS will reverse for display
         return messageRepository.findByConversationOrderBySentAtDesc(conversation, pageable);
     }
 
@@ -157,7 +158,8 @@ public class MessagingServiceImpl implements MessagingService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "conversations", key = "#user.id + ':' + #pageable.pageNumber")
+    // Note: Caching disabled for Page<> return type due to Jackson serialization issues with PageImpl
+    // Redis cannot properly serialize/deserialize Spring Data Page objects
     public Page<Conversation> getUserConversations(User user, Pageable pageable) {
         log.debug("Getting conversations with pagination for user {}", maskEmail(user.getEmail()));
         return conversationRepository.findByUserOrderByLastMessageDesc(user, pageable);
@@ -165,19 +167,25 @@ public class MessagingServiceImpl implements MessagingService {
 
     @Override
     @CacheEvict(value = "unread-counts", key = "#user.id")
-    public void markMessagesAsRead(Long conversationId, User user) {
+    public synchronized void markMessagesAsRead(Long conversationId, User user) {
         log.info("Marking messages as read in conversation {} for user {}", conversationId, maskEmail(user.getEmail()));
-        
+
         Conversation conversation = getConversation(conversationId, user);
         List<Message> unreadMessages = messageRepository.findUnreadMessagesInConversation(conversation, user);
-        
+
         for (Message message : unreadMessages) {
-            if (!messageStatusRepository.existsByMessageAndUserAndStatus(message, user, MessageStatusType.READ)) {
-                MessageStatus readStatus = MessageStatus.createReadStatus(message, user);
-                messageStatusRepository.save(readStatus);
+            try {
+                // Check again inside transaction to prevent race condition
+                if (!messageStatusRepository.existsByMessageAndUserAndStatus(message, user, MessageStatusType.READ)) {
+                    MessageStatus readStatus = MessageStatus.createReadStatus(message, user);
+                    messageStatusRepository.save(readStatus);
+                }
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // Ignore duplicate key errors - message already marked as read
+                log.debug("Message {} already marked as read for user {}", message.getId(), maskEmail(user.getEmail()));
             }
         }
-        
+
         log.info("Marked {} messages as read", unreadMessages.size());
     }
 

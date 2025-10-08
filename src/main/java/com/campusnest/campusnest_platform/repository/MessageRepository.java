@@ -22,9 +22,15 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findByConversationOrderBySentAtAsc(@Param("conversation") Conversation conversation);
 
     @Query("SELECT m FROM Message m WHERE m.conversation = :conversation " +
+           "ORDER BY m.sentAt ASC")
+    Page<Message> findByConversationOrderBySentAtAsc(
+            @Param("conversation") Conversation conversation,
+            Pageable pageable);
+
+    @Query("SELECT m FROM Message m WHERE m.conversation = :conversation " +
            "ORDER BY m.sentAt DESC")
     Page<Message> findByConversationOrderBySentAtDesc(
-            @Param("conversation") Conversation conversation, 
+            @Param("conversation") Conversation conversation,
             Pageable pageable);
 
     @Query("SELECT m FROM Message m WHERE m.conversation = :conversation " +
