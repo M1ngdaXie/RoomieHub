@@ -13,7 +13,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "housing_listings")
+@Table(name = "housing_listings", indexes = {
+    @Index(name = "idx_city", columnList = "city"),
+    @Index(name = "idx_price", columnList = "price"),
+    @Index(name = "idx_is_active", columnList = "isActive"),
+    @Index(name = "idx_created_at", columnList = "createdAt"),
+    @Index(name = "idx_available_from", columnList = "availableFrom"),
+    @Index(name = "idx_available_to", columnList = "availableTo"),
+    @Index(name = "idx_city_price_active", columnList = "city, price, isActive")
+})
 @Getter
 @Setter
 public class HousingListing {

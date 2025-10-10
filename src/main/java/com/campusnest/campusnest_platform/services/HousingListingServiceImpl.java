@@ -153,20 +153,15 @@ public class HousingListingServiceImpl implements HousingListingService {
     @Override
     @Transactional(readOnly = true)
     public List<HousingListing> searchByCity(String city) {
-        return housingListingRepository.findByIsActiveTrueOrderByCreatedAtDesc()
-                .stream()
-                .filter(listing -> listing.getCity().toLowerCase().contains(city.toLowerCase()))
-                .toList();
+        // Use optimized database query instead of in-memory filtering
+        return housingListingRepository.findActiveByCityContainingIgnoreCase(city);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<HousingListing> searchByPriceRange(BigDecimal minPrice, BigDecimal maxPrice) {
-        return housingListingRepository.findByIsActiveTrueOrderByCreatedAtDesc()
-                .stream()
-                .filter(listing -> listing.getPrice().compareTo(minPrice) >= 0 && 
-                                 listing.getPrice().compareTo(maxPrice) <= 0)
-                .toList();
+        // Use optimized database query instead of in-memory filtering
+        return housingListingRepository.findActiveByPriceBetween(minPrice, maxPrice);
     }
 
     @Override

@@ -86,4 +86,23 @@ public interface HousingListingRepository extends JpaRepository<HousingListing, 
         @Param("maxPrice") BigDecimal maxPrice,
         Pageable pageable
     );
+
+    // Optimized city search with database filtering
+    @Query("SELECT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.owner o " +
+           "WHERE h.isActive = true " +
+           "AND LOWER(h.city) LIKE LOWER(CONCAT('%', :city, '%')) " +
+           "ORDER BY h.createdAt DESC")
+    List<HousingListing> findActiveByCityContainingIgnoreCase(@Param("city") String city);
+
+    // Optimized price range search with database filtering
+    @Query("SELECT h FROM HousingListing h " +
+           "LEFT JOIN FETCH h.owner o " +
+           "WHERE h.isActive = true " +
+           "AND h.price BETWEEN :minPrice AND :maxPrice " +
+           "ORDER BY h.createdAt DESC")
+    List<HousingListing> findActiveByPriceBetween(
+        @Param("minPrice") BigDecimal minPrice,
+        @Param("maxPrice") BigDecimal maxPrice
+    );
 }

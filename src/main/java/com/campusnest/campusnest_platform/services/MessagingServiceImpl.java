@@ -167,26 +167,30 @@ public class MessagingServiceImpl implements MessagingService {
 
     @Override
     @CacheEvict(value = "unread-counts", key = "#user.id")
+    @Transactional(noRollbackFor = org.springframework.dao.DataIntegrityViolationException.class)
     public synchronized void markMessagesAsRead(Long conversationId, User user) {
         log.info("Marking messages as read in conversation {} for user {}", conversationId, maskEmail(user.getEmail()));
 
         Conversation conversation = getConversation(conversationId, user);
         List<Message> unreadMessages = messageRepository.findUnreadMessagesInConversation(conversation, user);
 
+        int markedCount = 0;
         for (Message message : unreadMessages) {
             try {
                 // Check again inside transaction to prevent race condition
                 if (!messageStatusRepository.existsByMessageAndUserAndStatus(message, user, MessageStatusType.READ)) {
                     MessageStatus readStatus = MessageStatus.createReadStatus(message, user);
                     messageStatusRepository.save(readStatus);
+                    markedCount++;
                 }
             } catch (org.springframework.dao.DataIntegrityViolationException e) {
-                // Ignore duplicate key errors - message already marked as read
-                log.debug("Message {} already marked as read for user {}", message.getId(), maskEmail(user.getEmail()));
+                // Ignore duplicate key errors - message already marked as read by another thread
+                log.debug("Message {} already marked as read for user {} (concurrent update)",
+                        message.getId(), maskEmail(user.getEmail()));
             }
         }
 
-        log.info("Marked {} messages as read", unreadMessages.size());
+        log.info("Marked {} messages as read (out of {} unread)", markedCount, unreadMessages.size());
     }
 
     @Override

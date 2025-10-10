@@ -96,17 +96,12 @@ public class HousingListingController {
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
         try {
-            List<HousingListing> listings = housingListingService.findAllActive();
-            
-            // Apply pagination manually for now
-            int start = page * size;
-            int end = Math.min(start + size, listings.size());
-            
-            if (start >= listings.size()) {
-                return ResponseEntity.ok(List.of());
-            }
-            
-            List<HousingListing> paginatedListings = listings.subList(start, end);
+            // Get all listings (pagination happens in-memory for now since we need images/favorites loaded)
+            List<HousingListing> allListings = housingListingService.findAllActive();
+
+            // Apply pagination
+            List<HousingListing> paginatedListings = applyPagination(allListings, page, size);
+
             List<HousingListingSummaryResponse> response = paginatedListings.stream()
                     .map(listing -> convertToSummaryResponse(listing, authentication != null ? authentication.getName() : null))
                     .collect(Collectors.toList());
