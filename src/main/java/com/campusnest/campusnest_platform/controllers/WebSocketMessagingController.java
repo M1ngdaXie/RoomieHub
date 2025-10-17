@@ -1,12 +1,15 @@
 package com.campusnest.campusnest_platform.controllers;
 
+import com.campusnest.campusnest_platform.events.MessageEvent;
 import com.campusnest.campusnest_platform.models.Message;
 import com.campusnest.campusnest_platform.models.User;
 import com.campusnest.campusnest_platform.requests.ChatMessageRequest;
 import com.campusnest.campusnest_platform.requests.TypingIndicatorRequest;
 import com.campusnest.campusnest_platform.response.ChatMessageResponse;
 import com.campusnest.campusnest_platform.response.TypingIndicatorResponse;
+import com.campusnest.campusnest_platform.services.MessageEventProducer;
 import com.campusnest.campusnest_platform.services.MessagingService;
+import com.campusnest.campusnest_platform.services.UserPresenceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
@@ -30,6 +33,12 @@ public class WebSocketMessagingController {
 
     @Autowired
     private CacheManager cacheManager;
+
+    @Autowired
+    private MessageEventProducer messageEventProducer;
+
+    @Autowired
+    private UserPresenceService presenceService;
 
     @MessageMapping("/chat/send")
     public void sendMessage(ChatMessageRequest request, Principal principal) {
@@ -74,6 +83,15 @@ public class WebSocketMessagingController {
                 otherParticipantId = conversation.getParticipant1().getId();  
                 otherParticipantEmail = conversation.getParticipant1().getEmail();
             }
+
+            MessageEvent messageEvent = MessageEvent.fromMessage(
+                    message,
+                    otherParticipantId,
+                    //could be wrong
+                    conversation.getParticipant1().getFullName(),
+                    otherParticipantEmail
+            );
+            messageEventProducer.publishMessageEvent(messageEvent);
 
             if (otherParticipantEmail != null) {
                 // Send to the other participant using their email as user identifier
@@ -251,6 +269,22 @@ public class WebSocketMessagingController {
         }
         log.debug("Cleared caches for user: {}", userId);
     }
+
+    @MessageMapping("/chat/connect")
+    public void handleConnect(Principal principal) {
+        User currentUser = getCurrentUser(principal);
+        presenceService.setUserOnline(currentUser.getId());
+        log.info("User {} connected - now ONLINE", maskEmail(currentUser.getEmail()));
+    }
+
+    @MessageMapping("/chat/disconnect")
+    public void handleDisconnect(Principal principal) {
+        User currentUser = getCurrentUser(principal);
+        presenceService.setUserOffline(currentUser.getId());
+        log.info("User {} disconnected - now OFFLINE", maskEmail(currentUser.getEmail()));
+    }
+
+
 
     private String maskEmail(String email) {
         if (email == null) return "null";
