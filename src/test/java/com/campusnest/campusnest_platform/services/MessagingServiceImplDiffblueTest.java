@@ -17,10 +17,10 @@ import com.campusnest.campusnest_platform.models.Conversation;
 import com.campusnest.campusnest_platform.models.HousingListing;
 import com.campusnest.campusnest_platform.models.Message;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.ConversationRepository;
-import com.campusnest.campusnest_platform.repository.HousingListingRepository;
-import com.campusnest.campusnest_platform.repository.MessageRepository;
-import com.campusnest.campusnest_platform.repository.MessageStatusRepository;
+import com.campusnest.campusnest_platform.repository.message.ConversationRepository;
+import com.campusnest.campusnest_platform.repository.housing.HousingListingRepository;
+import com.campusnest.campusnest_platform.repository.message.MessageRepository;
+import com.campusnest.campusnest_platform.repository.message.MessageStatusRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

@@ -1,5 +1,6 @@
 package com.campusnest.campusnest_platform.controllers;
 
+import com.campusnest.campusnest_platform.controllers.auth.AuthController;
 import com.campusnest.campusnest_platform.requests.ForgotPasswordRequest;
 import com.campusnest.campusnest_platform.requests.ResetPasswordRequest;
 import com.campusnest.campusnest_platform.response.ForgotPasswordResponse;

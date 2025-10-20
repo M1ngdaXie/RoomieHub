@@ -2,7 +2,7 @@ package com.campusnest.campusnest_platform.services.Impl;
 
 import com.campusnest.campusnest_platform.enums.VerificationStatus;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.UserRepository;
+import com.campusnest.campusnest_platform.repository.user.UserRepository;
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
 import com.campusnest.campusnest_platform.requests.LoginRequest;
 import com.campusnest.campusnest_platform.response.LoginResponse;

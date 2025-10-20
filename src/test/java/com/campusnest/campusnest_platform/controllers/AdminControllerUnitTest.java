@@ -2,7 +2,7 @@
 //
 //import com.campusnest.campusnest_platform.enums.UserRole;
 //import com.campusnest.campusnest_platform.models.User;
-//import com.campusnest.campusnest_platform.repository.UserRepository;
+//import com.campusnest.campusnest_platform.repository.user.UserRepository;
 //import org.junit.jupiter.api.BeforeEach;
 //import org.junit.jupiter.api.Test;
 //import org.junit.jupiter.api.extension.ExtendWith;

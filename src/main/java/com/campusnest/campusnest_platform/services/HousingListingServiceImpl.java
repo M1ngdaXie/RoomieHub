@@ -2,9 +2,9 @@ package com.campusnest.campusnest_platform.services;
 
 import com.campusnest.campusnest_platform.models.HousingListing;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.HousingListingRepository;
-import com.campusnest.campusnest_platform.repository.ListingImageRepository;
-import com.campusnest.campusnest_platform.repository.UserRepository;
+import com.campusnest.campusnest_platform.repository.housing.HousingListingRepository;
+import com.campusnest.campusnest_platform.repository.housing.ListingImageRepository;
+import com.campusnest.campusnest_platform.repository.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;

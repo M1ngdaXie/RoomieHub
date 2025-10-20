@@ -3,7 +3,7 @@ package com.campusnest.campusnest_platform.services;
 import com.campusnest.campusnest_platform.enums.VerificationStatus;
 import com.campusnest.campusnest_platform.models.RefreshToken;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.RefreshTokenRepository;
+import com.campusnest.campusnest_platform.repository.auth.RefreshTokenRepository;
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -7,7 +7,7 @@ import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.campusnest.campusnest_platform.models.RefreshToken;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.RefreshTokenRepository;
+import com.campusnest.campusnest_platform.repository.auth.RefreshTokenRepository;
 import com.campusnest.campusnest_platform.requests.DeviceInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;

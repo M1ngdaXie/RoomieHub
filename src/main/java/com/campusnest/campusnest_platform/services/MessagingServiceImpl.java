@@ -3,9 +3,10 @@ package com.campusnest.campusnest_platform.services;
 import com.campusnest.campusnest_platform.enums.MessageStatusType;
 import com.campusnest.campusnest_platform.enums.MessageType;
 import com.campusnest.campusnest_platform.models.*;
-import com.campusnest.campusnest_platform.repository.ConversationRepository;
-import com.campusnest.campusnest_platform.repository.MessageRepository;
-import com.campusnest.campusnest_platform.repository.MessageStatusRepository;
+import com.campusnest.campusnest_platform.repository.housing.HousingListingRepository;
+import com.campusnest.campusnest_platform.repository.message.ConversationRepository;
+import com.campusnest.campusnest_platform.repository.message.MessageRepository;
+import com.campusnest.campusnest_platform.repository.message.MessageStatusRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
@@ -34,7 +35,7 @@ public class MessagingServiceImpl implements MessagingService {
     private MessageStatusRepository messageStatusRepository;
 
     @Autowired
-    private com.campusnest.campusnest_platform.repository.HousingListingRepository housingListingRepository;
+    private HousingListingRepository housingListingRepository;
 
     @Override
     public Conversation createOrGetConversation(User user1, User user2, HousingListing listing) {

@@ -1,9 +1,9 @@
 package com.campusnest.campusnest_platform.controllers;
 
+import com.campusnest.campusnest_platform.controllers.auth.AdminController;
 import com.campusnest.campusnest_platform.enums.UserRole;
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.UserRepository;
-import com.campusnest.campusnest_platform.response.UserResponse;
+import com.campusnest.campusnest_platform.repository.user.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

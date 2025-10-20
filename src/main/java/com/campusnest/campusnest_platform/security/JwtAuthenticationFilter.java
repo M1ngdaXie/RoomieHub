@@ -1,7 +1,7 @@
 package com.campusnest.campusnest_platform.security;
 
 import com.campusnest.campusnest_platform.models.User;
-import com.campusnest.campusnest_platform.repository.UserRepository;
+import com.campusnest.campusnest_platform.repository.user.UserRepository;
 import com.campusnest.campusnest_platform.services.JwtTokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

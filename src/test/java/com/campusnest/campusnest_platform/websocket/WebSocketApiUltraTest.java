@@ -1,6 +1,6 @@
 //package com.campusnest.campusnest_platform.websocket;
 //
-//import com.campusnest.campusnest_platform.controllers.WebSocketMessagingController;
+//import com.campusnest.campusnest_platform.controllers.websocket.WebSocketMessagingController;
 //import com.campusnest.campusnest_platform.enums.MessageType;
 //import com.campusnest.campusnest_platform.models.Message;
 //import com.campusnest.campusnest_platform.models.User;
