@@ -1,14 +1,19 @@
 package com.campusnest.campusnest_platform.controllers.housing;
 
+import com.campusnest.campusnest_platform.models.Conversation;
 import com.campusnest.campusnest_platform.models.HousingListing;
 import com.campusnest.campusnest_platform.models.ListingImage;
+import com.campusnest.campusnest_platform.models.User;
 import com.campusnest.campusnest_platform.repository.housing.ListingImageRepository;
+import com.campusnest.campusnest_platform.requests.ContactOwnerRequest;
 import com.campusnest.campusnest_platform.requests.CreateHousingListingRequest;
 import com.campusnest.campusnest_platform.requests.SearchHousingListingRequest;
 import com.campusnest.campusnest_platform.requests.UpdateHousingListingRequest;
+import com.campusnest.campusnest_platform.response.ContactOwnerResponse;
 import com.campusnest.campusnest_platform.response.HousingListingResponse;
 import com.campusnest.campusnest_platform.response.HousingListingSummaryResponse;
 import com.campusnest.campusnest_platform.services.HousingListingService;
+import com.campusnest.campusnest_platform.services.MessagingService;
 import com.campusnest.campusnest_platform.services.S3Service;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,9 +44,12 @@ public class HousingListingController {
 
     @Autowired
     private S3Service s3Service;
-    
+
     @Autowired
     private ListingImageRepository listingImageRepository;
+
+    @Autowired
+    private MessagingService messagingService;
 
     // Create a new housing listing
     @PostMapping
@@ -371,14 +379,102 @@ public class HousingListingController {
         try {
             Map<String, Object> stats = new HashMap<>();
             stats.put("totalActiveListings", housingListingService.getTotalActiveListings());
-            
+
             if (authentication != null) {
                 stats.put("userListings", housingListingService.getTotalListingsByOwner(authentication.getName()));
             }
-            
+
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // Contact owner - Create conversation and send initial message
+    @PostMapping("/{listingId}/contact-owner")
+    @PreAuthorize("hasRole('STUDENT') or hasRole('ADMIN')")
+    public ResponseEntity<?> contactOwner(
+            @PathVariable Long listingId,
+            @Valid @RequestBody ContactOwnerRequest request,
+            BindingResult bindingResult,
+            Authentication authentication) {
+
+        try {
+            // Validation
+            if (bindingResult.hasErrors()) {
+                return ResponseEntity.badRequest().body(getValidationErrors(bindingResult));
+            }
+
+            User currentUser = getCurrentUser(authentication);
+            log.info("User {} attempting to contact owner for listing {}",
+                    maskEmail(currentUser.getEmail()), listingId);
+
+            // Get listing and verify it exists and is active
+            Optional<HousingListing> listingOpt = housingListingService.findById(listingId);
+            if (listingOpt.isEmpty()) {
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "Listing not found");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+            }
+
+            HousingListing listing = listingOpt.get();
+            if (!listing.getIsActive()) {
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "This listing is no longer active");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+            }
+
+            // Prevent users from contacting themselves
+            if (listing.getOwner().getId().equals(currentUser.getId())) {
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "Cannot contact yourself about your own listing");
+                return ResponseEntity.badRequest().body(error);
+            }
+
+            // Create or get existing conversation
+            Conversation conversation = messagingService.createOrGetConversation(
+                    currentUser,
+                    listing.getOwner(),
+                    listing
+            );
+
+            boolean isNewConversation = conversation.getCreatedAt().isAfter(
+                    java.time.LocalDateTime.now().minusSeconds(2)
+            );
+
+            // Send initial message
+            messagingService.sendMessage(
+                    conversation.getId(),
+                    currentUser,
+                    request.getMessage()
+            );
+
+            log.info("Conversation {} created/retrieved for user {} and listing {}",
+                    conversation.getId(), maskEmail(currentUser.getEmail()), listingId);
+
+            // Build response
+            ContactOwnerResponse response = ContactOwnerResponse.create(
+                    conversation.getId(),
+                    listing.getId(),
+                    listing.getTitle(),
+                    listing.getOwner(),
+                    true,
+                    isNewConversation,
+                    maskEmail(listing.getOwner().getEmail())
+            );
+
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid request for contact owner: {}", e.getMessage());
+            Map<String, String> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        } catch (Exception e) {
+            log.error("Error contacting owner for listing {}: {}", listingId, e.getMessage());
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Failed to contact owner. Please try again later.");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
 
@@ -629,23 +725,30 @@ public class HousingListingController {
         return response;
     }
 
+    private User getCurrentUser(Authentication authentication) {
+        if (authentication.getPrincipal() instanceof User) {
+            return (User) authentication.getPrincipal();
+        }
+        throw new RuntimeException("User not found in authentication context");
+    }
+
     private String maskEmail(String email) {
         if (email == null || email.length() < 3) {
             return email;
         }
-        
+
         int atIndex = email.indexOf('@');
         if (atIndex == -1) {
             return email;
         }
-        
+
         String username = email.substring(0, atIndex);
         String domain = email.substring(atIndex);
-        
+
         if (username.length() <= 2) {
             return "*".repeat(username.length()) + domain;
         }
-        
+
         return username.charAt(0) + "*".repeat(username.length() - 2) + username.charAt(username.length() - 1) + domain;
     }
 }

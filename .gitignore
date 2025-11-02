@@ -33,3 +33,32 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Deployment ###
+# Terraform state files
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/.terraform.tfstate.lock.info
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Deployment outputs
+deployment-outputs.txt
+
+# Docker
+docker-compose.override.yml
+
+# AWS
+.aws/
+
+# Logs
+*.log
+logs/
